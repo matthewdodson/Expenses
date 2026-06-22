@@ -306,11 +306,11 @@
 
   const PAYMENT_METHODS = ['Visa 3046', 'PayPal', 'Acct 135', 'Acct 090'];
   const FREQUENCIES = [
-    { id: 'weekly', label: 'Weekly', monthsFactor: 4.33 },
-    { id: 'monthly', label: 'Monthly', monthsFactor: 1 },
-    { id: 'quarterly', label: 'Quarterly', monthsFactor: 1 / 3 },
-    { id: 'yearly', label: 'Yearly', monthsFactor: 1 / 12 },
-    { id: 'one-time', label: 'One-time', monthsFactor: 0 },
+    { id: 'weekly', label: 'Weekly', monthsFactor: 4.33, yearlyFactor: 52 },
+    { id: 'monthly', label: 'Monthly', monthsFactor: 1, yearlyFactor: 12 },
+    { id: 'quarterly', label: 'Quarterly', monthsFactor: 1 / 3, yearlyFactor: 4 },
+    { id: 'yearly', label: 'Yearly', monthsFactor: 1 / 12, yearlyFactor: 1 },
+    { id: 'one-time', label: 'One-time', monthsFactor: 0, yearlyFactor: 0 },
   ];
 
   function freqMeta(id) { return FREQUENCIES.find(f => f.id === id) || FREQUENCIES[1]; }
@@ -399,6 +399,7 @@
     const [autoPayFilter, setAutoPayFilter] = React.useState('all');
     const [categoryFilter, setCategoryFilter] = React.useState('all');
     const [paymentMethodFilter, setPaymentMethodFilter] = React.useState('all');
+    const [viewMode, setViewMode] = React.useState('monthly');
 
     function emptyForm() {
       return {
@@ -585,7 +586,11 @@
     }
 
     // Derived stats
-    const monthlyTotal = items.reduce((sum, it) => sum + it.amount * freqMeta(it.frequency).monthsFactor, 0);
+    function periodFactor(freqId) {
+      const f = freqMeta(freqId);
+      return viewMode === 'yearly' ? f.yearlyFactor : f.monthsFactor;
+    }
+    const periodTotal = items.reduce((sum, it) => sum + it.amount * periodFactor(it.frequency), 0);
     const dueThisWeek = items.filter(it => {
       const d = daysUntil(it.dueDate);
       return d !== null && d >= 0 && d <= 7;
@@ -595,8 +600,8 @@
 
     const catTotals = {};
     items.forEach(it => {
-      const monthlyEq = it.amount * freqMeta(it.frequency).monthsFactor;
-      catTotals[it.category] = (catTotals[it.category] || 0) + monthlyEq;
+      const eq = it.amount * periodFactor(it.frequency);
+      catTotals[it.category] = (catTotals[it.category] || 0) + eq;
     });
     const catList = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
     const maxCat = catList.length ? catList[0][1] : 1;
@@ -653,10 +658,21 @@
         )
       ),
 
+      e('div', { className: 'lg-toolbar', style: { justifyContent: 'flex-end', marginBottom: 8 } },
+        ['monthly', 'yearly'].map(mode =>
+          e('button', {
+            key: mode,
+            className: 'lg-btn ' + (viewMode === mode ? 'lg-btn-primary' : 'lg-btn-ghost'),
+            style: { padding: '5px 12px', fontSize: 12 },
+            onClick: () => setViewMode(mode)
+          }, mode === 'monthly' ? 'Monthly view' : 'Yearly view')
+        )
+      ),
+
       e('div', { className: 'lg-stats' },
         e('div', { className: 'lg-stat' },
-          e('div', { className: 'lg-stat-label' }, 'Monthly total'),
-          e('div', { className: 'lg-stat-value teal' }, fmtMoney(monthlyTotal))
+          e('div', { className: 'lg-stat-label' }, viewMode === 'yearly' ? 'Yearly total' : 'Monthly total'),
+          e('div', { className: 'lg-stat-value teal' }, fmtMoney(periodTotal))
         ),
         e('div', { className: 'lg-stat' },
           e('div', { className: 'lg-stat-label' }, 'Due in next 7 days'),
@@ -720,7 +736,7 @@
       ),
 
       catList.length > 0 && e('div', null,
-        e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, 'By category (monthly equivalent)')),
+        e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, viewMode === 'yearly' ? 'By category (yearly equivalent)' : 'By category (monthly equivalent)')),
         e('div', { className: 'lg-cats' },
           catList.map(([cat, total]) =>
             e('div', { className: 'lg-cat-bar-row', key: cat },
