@@ -300,6 +300,26 @@
 
   function freqMeta(id) { return FREQUENCIES.find(f => f.id === id) || FREQUENCIES[1]; }
   function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+
+  const hasClaudeStorage = typeof window.storage !== 'undefined' && window.storage && typeof window.storage.get === 'function';
+
+  async function storageGet(key) {
+    if (hasClaudeStorage) {
+      try {
+        const res = await window.storage.get(key, false);
+        return res ? res.value : null;
+      } catch (_) { return null; }
+    }
+    try { return localStorage.getItem(key); } catch (_) { return null; }
+  }
+
+  async function storageSet(key, value) {
+    if (hasClaudeStorage) {
+      try { await window.storage.set(key, value, false); return true; } catch (_) { return false; }
+    }
+    try { localStorage.setItem(key, value); return true; } catch (_) { return false; }
+  }
+
   function fmtMoney(n) {
     const v = Number(n) || 0;
     return '$' + v.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -371,19 +391,17 @@
 
     React.useEffect(() => {
       (async () => {
-        try {
-          const res = await window.storage.get(STORAGE_KEY, false);
-          if (res && res.value) setItems(JSON.parse(res.value));
-        } catch (_) { /* no data yet */ }
+        const value = await storageGet(STORAGE_KEY);
+        if (value) {
+          try { setItems(JSON.parse(value)); } catch (_) { /* corrupt data, ignore */ }
+        }
         setLoaded(true);
       })();
     }, []);
 
     async function persist(next) {
       setItems(next);
-      try {
-        await window.storage.set(STORAGE_KEY, JSON.stringify(next), false);
-      } catch (_) { /* storage failed silently; UI still reflects state */ }
+      await storageSet(STORAGE_KEY, JSON.stringify(next));
     }
 
     function openAdd() {
@@ -648,7 +666,8 @@
         ),
         e('div', { className: 'lg-field' },
           e('label', null, 'Payment method'),
-          e('input', { type: 'text', placeholder: 'e.g. Visa ...4321', value: form.paymentMethod, onChange: ev => setForm({ ...form, paymentMethod: ev.target.value }) })
+          e('input', { type: 'text', placeholder: 'e.g. Visa ••••4321, ANZ savings ••1187', value: form.paymentMethod, onChange: ev => setForm({ ...form, paymentMethod: ev.target.value }) }),
+          e('div', { style: { fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 } }, 'Use a masked reference, not the full card or account number.')
         ),
         e('div', { className: 'lg-field full' },
           e('label', null, 'Notes'),
@@ -714,7 +733,11 @@
             })
           ),
 
-      e('div', { className: 'lg-footer-note' }, 'Saved automatically — your data stays on this account and reloads next time you open this.')
+      e('div', { className: 'lg-footer-note' },
+        hasClaudeStorage
+          ? 'Saved automatically — your data stays on this account and reloads next time you open this.'
+          : 'Saved to this browser only (not synced across devices) — use Backup regularly to keep a copy safe.'
+      )
     );
   }
 
