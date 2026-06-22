@@ -289,7 +289,7 @@
   const e = React.createElement;
   const STORAGE_KEY = 'expenses-v1';
 
-  const CATEGORIES = ['Streaming', 'Utilities', 'Rent/Mortgage', 'Insurance', 'Subscriptions', 'Loan', 'Phone/Internet', 'Other'];
+  const CATEGORIES = ['Streaming', 'Utilities', 'Mortgage', 'Insurance', 'Subscriptions', 'Phone/Internet', 'Other'];
   const FREQUENCIES = [
     { id: 'weekly', label: 'Weekly', monthsFactor: 4.33 },
     { id: 'monthly', label: 'Monthly', monthsFactor: 1 },
@@ -382,6 +382,7 @@
     const [restoreMsg, setRestoreMsg] = React.useState('');
     const fileInputRef = React.useRef(null);
     const [autoPayFilter, setAutoPayFilter] = React.useState('all');
+    const [categoryFilter, setCategoryFilter] = React.useState('all');
 
     function emptyForm() {
       return {
@@ -394,7 +395,20 @@
       (async () => {
         const value = await storageGet(STORAGE_KEY);
         if (value) {
-          try { setItems(JSON.parse(value)); } catch (_) { /* corrupt data, ignore */ }
+          try {
+            const parsed = JSON.parse(value);
+            const CATEGORY_MIGRATIONS = { 'Rent/Mortgage': 'Mortgage', 'Loan': 'Other' };
+            let migrated = false;
+            const fixed = parsed.map(it => {
+              if (CATEGORY_MIGRATIONS[it.category]) {
+                migrated = true;
+                return { ...it, category: CATEGORY_MIGRATIONS[it.category] };
+              }
+              return it;
+            });
+            setItems(fixed);
+            if (migrated) await storageSet(STORAGE_KEY, JSON.stringify(fixed));
+          } catch (_) { /* corrupt data, ignore */ }
         }
         setLoaded(true);
       })();
@@ -715,8 +729,30 @@
       ),
 
       (() => {
+        const categoriesPresent = Array.from(new Set(items.map(it => it.category)));
+        const categoryOptions = Array.from(new Set([...CATEGORIES, ...categoriesPresent]));
+        if (categoryOptions.length === 0) return null;
+        return e('div', { className: 'lg-toolbar', style: { flexWrap: 'wrap', marginBottom: 14 } },
+          e('button', {
+            className: 'lg-btn ' + (categoryFilter === 'all' ? 'lg-btn-primary' : 'lg-btn-ghost'),
+            style: { padding: '6px 12px', fontSize: 12 },
+            onClick: () => setCategoryFilter('all')
+          }, 'All categories'),
+          categoryOptions.map(cat =>
+            e('button', {
+              key: cat,
+              className: 'lg-btn ' + (categoryFilter === cat ? 'lg-btn-primary' : 'lg-btn-ghost'),
+              style: { padding: '6px 12px', fontSize: 12 },
+              onClick: () => setCategoryFilter(cat)
+            }, cat)
+          )
+        );
+      })(),
+
+      (() => {
         const filteredSorted = sorted.filter(it =>
-          autoPayFilter === 'all' ? true : autoPayFilter === 'auto' ? !!it.autoPay : !it.autoPay
+          (autoPayFilter === 'all' ? true : autoPayFilter === 'auto' ? !!it.autoPay : !it.autoPay) &&
+          (categoryFilter === 'all' ? true : it.category === categoryFilter)
         );
         if (filteredSorted.length === 0) {
           return e('div', { className: 'lg-empty' },
