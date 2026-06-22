@@ -290,6 +290,18 @@
   const STORAGE_KEY = 'expenses-v1';
 
   const CATEGORIES = ['Streaming', 'Utilities', 'Mortgage', 'Insurance', 'Subscriptions', 'Phone/Internet', 'Other'];
+
+  const CATEGORY_COLORS = {
+    'Streaming': { fg: '#6B4FA0', bg: '#EDE6F5' },
+    'Utilities': { fg: '#2F6E62', bg: '#DCE7E3' },
+    'Mortgage': { fg: '#B14C3A', bg: '#F2DCD7' },
+    'Insurance': { fg: '#2F5A8A', bg: '#DCE5F0' },
+    'Subscriptions': { fg: '#C68A2E', bg: '#F3E6CC' },
+    'Phone/Internet': { fg: '#5C8A5C', bg: '#E1EAE0' },
+    'Other': { fg: '#5B6168', bg: '#E4E2DC' },
+  };
+  const DEFAULT_CATEGORY_COLOR = { fg: '#5B6168', bg: '#E4E2DC' };
+  function catColor(cat) { return CATEGORY_COLORS[cat] || DEFAULT_CATEGORY_COLOR; }
   const FREQUENCIES = [
     { id: 'weekly', label: 'Weekly', monthsFactor: 4.33 },
     { id: 'monthly', label: 'Monthly', monthsFactor: 1 },
@@ -706,8 +718,8 @@
         e('div', { className: 'lg-cats' },
           catList.map(([cat, total]) =>
             e('div', { className: 'lg-cat-bar-row', key: cat },
-              e('div', { className: 'lg-cat-label' }, cat),
-              e('div', { className: 'lg-cat-track' }, e('div', { className: 'lg-cat-fill', style: { width: (total / maxCat * 100) + '%' } })),
+              e('div', { className: 'lg-cat-label', style: { color: catColor(cat).fg, fontWeight: 600 } }, cat),
+              e('div', { className: 'lg-cat-track' }, e('div', { className: 'lg-cat-fill', style: { width: (total / maxCat * 100) + '%', background: catColor(cat).fg } })),
               e('div', { className: 'lg-cat-amount' }, fmtMoney(total))
             )
           )
@@ -738,14 +750,18 @@
             style: { padding: '6px 12px', fontSize: 12 },
             onClick: () => setCategoryFilter('all')
           }, 'All categories'),
-          categoryOptions.map(cat =>
-            e('button', {
+          categoryOptions.map(cat => {
+            const c = catColor(cat);
+            const active = categoryFilter === cat;
+            return e('button', {
               key: cat,
-              className: 'lg-btn ' + (categoryFilter === cat ? 'lg-btn-primary' : 'lg-btn-ghost'),
-              style: { padding: '6px 12px', fontSize: 12 },
+              className: 'lg-btn',
+              style: active
+                ? { padding: '6px 12px', fontSize: 12, background: c.fg, color: '#fff', border: '1px solid ' + c.fg }
+                : { padding: '6px 12px', fontSize: 12, background: c.bg, color: c.fg, border: '1px solid ' + c.bg },
               onClick: () => setCategoryFilter(cat)
-            }, cat)
-          )
+            }, cat);
+          })
         );
       })(),
 
@@ -767,7 +783,7 @@
               e('div', { className: 'lg-row-main' },
                 e('div', { className: 'lg-row-name' }, it.name),
                 e('div', { className: 'lg-row-meta' },
-                  e('span', { className: 'lg-tag' }, it.category),
+                  e('span', { className: 'lg-tag', style: { background: catColor(it.category).bg, color: catColor(it.category).fg } }, it.category),
                   e('span', null, freqMeta(it.frequency).label),
                   it.autoPay && e('span', { className: 'lg-tag', style: { background: 'var(--sage-dim)', color: 'var(--sage)' } }, 'Auto-pay'),
                   it.paymentMethod && e('span', null, it.paymentMethod)
