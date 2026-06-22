@@ -1,0 +1,724 @@
+<div id="ledger-root"></div>
+<style>
+  :root {
+    --bg: #E7E2D6;
+    --card: #F8F6F0;
+    --ink: #232A2E;
+    --ink-soft: #5B6168;
+    --line: #D6D0C2;
+    --teal: #2F6E62;
+    --teal-dim: #DCE7E3;
+    --amber: #C68A2E;
+    --amber-dim: #F3E6CC;
+    --rust: #B14C3A;
+    --rust-dim: #F2DCD7;
+    --sage: #5C8A5C;
+    --sage-dim: #E1EAE0;
+    --mono: 'IBM Plex Mono', 'Courier New', monospace;
+    --sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --disp: 'Space Grotesk', 'Inter', sans-serif;
+  }
+
+  #ledger-root * { box-sizing: border-box; }
+  #ledger-root {
+    font-family: var(--sans);
+    color: var(--ink);
+    background: var(--bg);
+    padding: 28px 20px 60px;
+    min-height: 100%;
+    border-radius: 12px;
+  }
+
+  .lg-wrap { max-width: 880px; margin: 0 auto; }
+
+  .lg-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 22px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 14px;
+  }
+  .lg-title {
+    font-family: var(--disp);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: -0.02em;
+  }
+  .lg-sub {
+    font-size: 12px;
+    color: var(--ink-soft);
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .lg-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 26px;
+  }
+  .lg-stat {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .lg-stat-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+  }
+  .lg-stat-value {
+    font-family: var(--mono);
+    font-size: 22px;
+    font-weight: 600;
+  }
+  .lg-stat-value.amber { color: var(--amber); }
+  .lg-stat-value.teal { color: var(--teal); }
+
+  .lg-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 28px 0 12px;
+  }
+  .lg-section-title {
+    font-family: var(--disp);
+    font-weight: 600;
+    font-size: 16px;
+  }
+
+  .lg-btn {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 13px;
+    border: none;
+    border-radius: 7px;
+    padding: 9px 16px;
+    cursor: pointer;
+    transition: transform 0.08s ease, opacity 0.15s ease;
+  }
+  .lg-btn:active { transform: scale(0.97); }
+  .lg-btn-primary { background: var(--teal); color: #fff; }
+  .lg-btn-primary:hover { opacity: 0.9; }
+  .lg-btn-ghost { background: transparent; color: var(--ink-soft); border: 1px solid var(--line); }
+  .lg-btn-ghost:hover { background: var(--card); }
+  .lg-btn-text {
+    background: none; border: none; color: var(--teal); font-weight: 600;
+    font-size: 13px; cursor: pointer; padding: 0;
+  }
+
+  .lg-form {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 22px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .lg-form.hidden { display: none; }
+  .lg-field { display: flex; flex-direction: column; gap: 5px; }
+  .lg-field.full { grid-column: 1 / -1; }
+  .lg-field label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--ink-soft); font-weight: 600;
+  }
+  .lg-field input, .lg-field select, .lg-field textarea {
+    font-family: var(--sans);
+    font-size: 14px;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    color: var(--ink);
+  }
+  .lg-field input:focus, .lg-field select:focus, .lg-field textarea:focus {
+    outline: 2px solid var(--teal);
+    outline-offset: 1px;
+  }
+  .lg-form-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+
+  .lg-empty {
+    background: var(--card);
+    border: 1px dashed var(--line);
+    border-radius: 12px;
+    padding: 36px 20px;
+    text-align: center;
+    color: var(--ink-soft);
+  }
+  .lg-empty strong { color: var(--ink); display: block; margin-bottom: 4px; font-family: var(--disp); }
+
+  .lg-list { display: flex; flex-direction: column; gap: 8px; }
+  .lg-row {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--ink-soft);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .lg-row.status-overdue { border-left-color: var(--rust); }
+  .lg-row.status-soon { border-left-color: var(--amber); }
+  .lg-row.status-ok { border-left-color: var(--sage); }
+
+  .lg-row-main { flex: 1; min-width: 0; }
+  .lg-row-name { font-weight: 600; font-size: 14.5px; }
+  .lg-row-meta {
+    font-size: 12px; color: var(--ink-soft); margin-top: 2px;
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .lg-tag {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--teal-dim);
+    color: var(--teal);
+  }
+  .lg-row-due {
+    font-family: var(--mono);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .lg-row-due.status-overdue { color: var(--rust); }
+  .lg-row-due.status-soon { color: var(--amber); }
+
+  .lg-row-amount {
+    font-family: var(--mono);
+    font-size: 17px;
+    font-weight: 600;
+    white-space: nowrap;
+    min-width: 80px;
+    text-align: right;
+  }
+  .lg-row-actions { display: flex; gap: 6px; }
+  .lg-icon-btn {
+    background: none; border: 1px solid var(--line); border-radius: 6px;
+    width: 30px; height: 30px; cursor: pointer; font-size: 13px;
+    color: var(--ink-soft); display: flex; align-items: center; justify-content: center;
+  }
+  .lg-icon-btn:hover { background: #fff; color: var(--ink); }
+
+  .lg-cats {
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .lg-cat-bar-row { display: flex; align-items: center; gap: 10px; }
+  .lg-cat-label { width: 120px; font-size: 12.5px; flex-shrink: 0; }
+  .lg-cat-track {
+    flex: 1; height: 8px; background: var(--line); border-radius: 4px; overflow: hidden;
+  }
+  .lg-cat-fill { height: 100%; background: var(--teal); border-radius: 4px; }
+  .lg-cat-amount { font-family: var(--mono); font-size: 12.5px; width: 70px; text-align: right; flex-shrink: 0; }
+
+  .lg-footer-note {
+    margin-top: 30px; font-size: 11.5px; color: var(--ink-soft); text-align: center;
+  }
+
+  .lg-alert {
+    border-radius: 10px;
+    padding: 13px 16px;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13.5px;
+  }
+  .lg-alert.rust { background: var(--rust-dim); border: 1px solid var(--rust); color: var(--rust); }
+  .lg-alert.amber { background: var(--amber-dim); border: 1px solid var(--amber); color: var(--amber); }
+  .lg-alert-icon { font-size: 16px; line-height: 1; }
+  .lg-alert-body strong { display: block; font-size: 13px; margin-bottom: 3px; }
+  .lg-alert-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .lg-alert-chip {
+    font-family: var(--mono); font-size: 11.5px; background: rgba(255,255,255,0.55);
+    padding: 2px 8px; border-radius: 5px;
+  }
+
+  .lg-sync-btn {
+    font-family: var(--sans);
+    font-size: 11.5px;
+    font-weight: 600;
+    border: 1px solid var(--teal);
+    color: var(--teal);
+    background: #fff;
+    border-radius: 6px;
+    padding: 5px 9px;
+    cursor: pointer;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .lg-sync-btn:hover { background: var(--teal-dim); }
+  .lg-sync-btn.pending { opacity: 0.6; cursor: wait; }
+  .lg-sync-btn.success { border-color: var(--sage); color: var(--sage); background: var(--sage-dim); }
+  .lg-sync-btn.error { border-color: var(--rust); color: var(--rust); background: var(--rust-dim); }
+
+  .lg-toolbar { display: flex; gap: 8px; align-items: center; }
+
+  @media (max-width: 560px) {
+    .lg-stats { grid-template-columns: 1fr; }
+    .lg-form { grid-template-columns: 1fr; }
+    .lg-row { flex-wrap: wrap; }
+    .lg-row-amount { order: 3; }
+  }
+</style>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+<script>
+(function () {
+  const e = React.createElement;
+  const STORAGE_KEY = 'expenses-v1';
+
+  const CATEGORIES = ['Streaming', 'Utilities', 'Rent/Mortgage', 'Insurance', 'Subscriptions', 'Loan', 'Phone/Internet', 'Other'];
+  const FREQUENCIES = [
+    { id: 'weekly', label: 'Weekly', monthsFactor: 4.33 },
+    { id: 'monthly', label: 'Monthly', monthsFactor: 1 },
+    { id: 'quarterly', label: 'Quarterly', monthsFactor: 1 / 3 },
+    { id: 'yearly', label: 'Yearly', monthsFactor: 1 / 12 },
+    { id: 'one-time', label: 'One-time', monthsFactor: 0 },
+  ];
+
+  function freqMeta(id) { return FREQUENCIES.find(f => f.id === id) || FREQUENCIES[1]; }
+  function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+  function fmtMoney(n) {
+    const v = Number(n) || 0;
+    return '$' + v.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function parseDate(s) {
+    if (!s) return null;
+    const d = new Date(s + 'T00:00:00');
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function daysUntil(dateStr) {
+    const d = parseDate(dateStr);
+    if (!d) return null;
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    return Math.round((d - today) / 86400000);
+  }
+  function statusFor(dateStr, freq) {
+    if (freq === 'one-time') {
+      const days = daysUntil(dateStr);
+      if (days === null) return 'ok';
+      if (days < 0) return 'paid';
+      if (days <= 3) return 'soon';
+      return 'ok';
+    }
+    const days = daysUntil(dateStr);
+    if (days === null) return 'ok';
+    if (days < 0) return 'overdue';
+    if (days <= 3) return 'soon';
+    return 'ok';
+  }
+  function advanceDate(dateStr, freqId) {
+    const d = parseDate(dateStr) || new Date();
+    const next = new Date(d);
+    if (freqId === 'weekly') next.setDate(next.getDate() + 7);
+    else if (freqId === 'monthly') next.setMonth(next.getMonth() + 1);
+    else if (freqId === 'quarterly') next.setMonth(next.getMonth() + 3);
+    else if (freqId === 'yearly') next.setFullYear(next.getFullYear() + 1);
+    else return dateStr;
+    return next.toISOString().slice(0, 10);
+  }
+  function fmtDueLabel(dateStr) {
+    const days = daysUntil(dateStr);
+    if (days === null) return '—';
+    if (days === 0) return 'Due today';
+    if (days === 1) return 'Due tomorrow';
+    if (days > 1) return `Due in ${days}d`;
+    if (days === -1) return '1d overdue';
+    return `${Math.abs(days)}d overdue`;
+  }
+
+  function App() {
+    const [items, setItems] = React.useState([]);
+    const [loaded, setLoaded] = React.useState(false);
+    const [showForm, setShowForm] = React.useState(false);
+    const [editingId, setEditingId] = React.useState(null);
+    const [form, setForm] = React.useState(emptyForm());
+    const [err, setErr] = React.useState('');
+    const [syncStatus, setSyncStatus] = React.useState({});
+    const [syncAllStatus, setSyncAllStatus] = React.useState('idle');
+    const [restoreMsg, setRestoreMsg] = React.useState('');
+    const fileInputRef = React.useRef(null);
+
+    function emptyForm() {
+      return {
+        name: '', amount: '', category: CATEGORIES[0], frequency: 'monthly',
+        dueDate: new Date().toISOString().slice(0, 10), paymentMethod: '', notes: ''
+      };
+    }
+
+    React.useEffect(() => {
+      (async () => {
+        try {
+          const res = await window.storage.get(STORAGE_KEY, false);
+          if (res && res.value) setItems(JSON.parse(res.value));
+        } catch (_) { /* no data yet */ }
+        setLoaded(true);
+      })();
+    }, []);
+
+    async function persist(next) {
+      setItems(next);
+      try {
+        await window.storage.set(STORAGE_KEY, JSON.stringify(next), false);
+      } catch (_) { /* storage failed silently; UI still reflects state */ }
+    }
+
+    function openAdd() {
+      setForm(emptyForm());
+      setEditingId(null);
+      setErr('');
+      setShowForm(true);
+    }
+    function openEdit(item) {
+      setForm({
+        name: item.name, amount: String(item.amount), category: item.category,
+        frequency: item.frequency, dueDate: item.dueDate,
+        paymentMethod: item.paymentMethod || '', notes: item.notes || ''
+      });
+      setEditingId(item.id);
+      setErr('');
+      setShowForm(true);
+    }
+    function closeForm() { setShowForm(false); setEditingId(null); }
+
+    function submit(ev) {
+      ev.preventDefault();
+      const amt = parseFloat(form.amount);
+      if (!form.name.trim()) { setErr('Give it a name.'); return; }
+      if (isNaN(amt) || amt <= 0) { setErr('Amount must be a positive number.'); return; }
+      if (!form.dueDate) { setErr('Pick a due date.'); return; }
+
+      if (editingId) {
+        const next = items.map(it => it.id === editingId ? {
+          ...it, name: form.name.trim(), amount: amt, category: form.category,
+          frequency: form.frequency, dueDate: form.dueDate,
+          paymentMethod: form.paymentMethod.trim(), notes: form.notes.trim()
+        } : it);
+        persist(next);
+      } else {
+        const newItem = {
+          id: uid(), name: form.name.trim(), amount: amt, category: form.category,
+          frequency: form.frequency, dueDate: form.dueDate,
+          paymentMethod: form.paymentMethod.trim(), notes: form.notes.trim()
+        };
+        persist([...items, newItem]);
+      }
+      closeForm();
+    }
+
+    function remove(id) {
+      persist(items.filter(it => it.id !== id));
+    }
+
+    function markPaid(item) {
+      if (item.frequency === 'one-time') { remove(item.id); return; }
+      const next = items.map(it => it.id === item.id ? { ...it, dueDate: advanceDate(it.dueDate, it.frequency) } : it);
+      persist(next);
+    }
+
+    function recurrenceText(freq) {
+      if (freq === 'weekly') return 'repeating weekly, every 7 days';
+      if (freq === 'monthly') return 'repeating monthly on the same day of the month';
+      if (freq === 'quarterly') return 'repeating every 3 months on the same day';
+      if (freq === 'yearly') return 'repeating yearly on the same date';
+      return 'a single one-off event, not recurring';
+    }
+
+    async function syncToCalendar(item) {
+      setSyncStatus(s => ({ ...s, [item.id]: 'pending' }));
+      try {
+        const prompt = `Create a Google Calendar event for a bill/subscription payment reminder, using the create_event tool. ` +
+          `Title: "${item.name} due (${fmtMoney(item.amount)})". ` +
+          `Date: ${item.dueDate}, set as an all-day event or at 9:00am local time. ` +
+          `Description: Category: ${item.category}. Amount: ${fmtMoney(item.amount)}. Payment method: ${item.paymentMethod || 'not specified'}. Notes: ${item.notes || 'none'}. ` +
+          `Add a reminder/notification set for 1 day before the event. ` +
+          `This event should be ${recurrenceText(item.frequency)}. ` +
+          `After creating it, reply with a short confirmation only.`;
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 1000,
+            messages: [{ role: 'user', content: prompt }],
+            mcp_servers: [{ type: 'url', url: 'https://calendarmcp.googleapis.com/mcp/v1', name: 'google-calendar' }]
+          })
+        });
+        const data = await res.json();
+        const toolResults = (data.content || []).filter(c => c.type === 'mcp_tool_result');
+        const toolUses = (data.content || []).filter(c => c.type === 'mcp_tool_use' && c.name === 'create_event');
+        if (toolUses.length > 0 && toolResults.length > 0) {
+          setSyncStatus(s => ({ ...s, [item.id]: 'success' }));
+        } else {
+          setSyncStatus(s => ({ ...s, [item.id]: 'error' }));
+        }
+      } catch (e) {
+        setSyncStatus(s => ({ ...s, [item.id]: 'error' }));
+      }
+    }
+
+    async function syncAllToCalendar() {
+      setSyncAllStatus('pending');
+      const upcoming = items.filter(it => {
+        const d = daysUntil(it.dueDate);
+        return d !== null && d >= -3;
+      });
+      for (const it of upcoming) {
+        await syncToCalendar(it);
+      }
+      setSyncAllStatus('idle');
+    }
+
+    function exportBackup() {
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        source: 'Ledger app',
+        expenses: items
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `ledger-backup-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function handleRestoreFile(ev) {
+      const file = ev.target.files && ev.target.files[0];
+      ev.target.value = '';
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const parsed = JSON.parse(reader.result);
+          const list = Array.isArray(parsed) ? parsed : parsed.expenses;
+          if (!Array.isArray(list)) { setRestoreMsg('error:Not a valid backup file.'); return; }
+          const valid = list.every(it => it && typeof it.name === 'string' && typeof it.amount === 'number' && typeof it.dueDate === 'string');
+          if (!valid) { setRestoreMsg('error:File format not recognized.'); return; }
+          const confirmReplace = window.confirm(`Restore ${list.length} expense(s) from this backup? This will replace what's currently in the app.`);
+          if (!confirmReplace) return;
+          const withIds = list.map(it => ({ ...it, id: it.id || uid() }));
+          persist(withIds);
+          setRestoreMsg('success:Restored ' + list.length + ' expense(s).');
+        } catch (e) {
+          setRestoreMsg('error:Could not read that file.');
+        }
+        setTimeout(() => setRestoreMsg(''), 4000);
+      };
+      reader.readAsText(file);
+    }
+
+    // Derived stats
+    const monthlyTotal = items.reduce((sum, it) => sum + it.amount * freqMeta(it.frequency).monthsFactor, 0);
+    const dueThisWeek = items.filter(it => {
+      const d = daysUntil(it.dueDate);
+      return d !== null && d >= 0 && d <= 7;
+    });
+    const dueThisWeekTotal = dueThisWeek.reduce((s, it) => s + it.amount, 0);
+    const overdueCount = items.filter(it => statusFor(it.dueDate, it.frequency) === 'overdue').length;
+
+    const catTotals = {};
+    items.forEach(it => {
+      const monthlyEq = it.amount * freqMeta(it.frequency).monthsFactor;
+      catTotals[it.category] = (catTotals[it.category] || 0) + monthlyEq;
+    });
+    const catList = Object.entries(catTotals).sort((a, b) => b[1] - a[1]);
+    const maxCat = catList.length ? catList[0][1] : 1;
+
+    const sorted = [...items].sort((a, b) => {
+      const da = daysUntil(a.dueDate); const db = daysUntil(b.dueDate);
+      return (da === null ? 9999 : da) - (db === null ? 9999 : db);
+    });
+
+    if (!loaded) {
+      return e('div', { className: 'lg-wrap' }, e('div', { className: 'lg-empty' }, 'Loading your ledger…'));
+    }
+
+    return e('div', { className: 'lg-wrap' },
+      e('div', { className: 'lg-header' },
+        e('div', null,
+          e('div', { className: 'lg-title' }, 'Ledger'),
+          e('div', { className: 'lg-sub' }, 'Subscriptions & bills')
+        ),
+        e('div', { className: 'lg-toolbar' },
+          e('button', {
+            className: 'lg-btn lg-btn-ghost',
+            disabled: syncAllStatus === 'pending',
+            onClick: syncAllToCalendar
+          }, syncAllStatus === 'pending' ? 'Syncing…' : '📅 Sync upcoming to Calendar'),
+          e('button', { className: 'lg-btn lg-btn-ghost', onClick: exportBackup, title: 'Download a JSON backup of all expenses' }, '⬇ Backup'),
+          e('button', { className: 'lg-btn lg-btn-ghost', onClick: () => fileInputRef.current && fileInputRef.current.click(), title: 'Restore from a backup file' }, '⬆ Restore'),
+          e('input', {
+            type: 'file', accept: 'application/json', ref: fileInputRef,
+            style: { display: 'none' }, onChange: handleRestoreFile
+          }),
+          e('button', { className: 'lg-btn lg-btn-primary', onClick: openAdd }, '+ Add expense')
+        )
+      ),
+
+      restoreMsg && e('div', {
+        className: 'lg-alert ' + (restoreMsg.startsWith('error:') ? 'rust' : 'amber'),
+        style: restoreMsg.startsWith('error:') ? {} : { background: 'var(--sage-dim)', borderColor: 'var(--sage)', color: 'var(--sage)' }
+      }, e('div', { className: 'lg-alert-icon' }, restoreMsg.startsWith('error:') ? '⚠' : '✓'),
+        e('div', { className: 'lg-alert-body' }, restoreMsg.split(':').slice(1).join(':'))
+      ),
+
+      (overdueCount > 0 || dueThisWeek.length > 0) && e('div', { className: 'lg-alert ' + (overdueCount > 0 ? 'rust' : 'amber') },
+        e('div', { className: 'lg-alert-icon' }, overdueCount > 0 ? '⚠' : '⏰'),
+        e('div', { className: 'lg-alert-body' },
+          e('strong', null, overdueCount > 0
+            ? `${overdueCount} payment${overdueCount === 1 ? '' : 's'} overdue`
+            : `${dueThisWeek.length} payment${dueThisWeek.length === 1 ? '' : 's'} due this week`),
+          e('div', { className: 'lg-alert-list' },
+            sorted.filter(it => ['overdue', 'soon'].includes(statusFor(it.dueDate, it.frequency))).slice(0, 6).map(it =>
+              e('span', { className: 'lg-alert-chip', key: it.id }, `${it.name} · ${fmtDueLabel(it.dueDate)}`)
+            )
+          )
+        )
+      ),
+
+      e('div', { className: 'lg-stats' },
+        e('div', { className: 'lg-stat' },
+          e('div', { className: 'lg-stat-label' }, 'Monthly total'),
+          e('div', { className: 'lg-stat-value teal' }, fmtMoney(monthlyTotal))
+        ),
+        e('div', { className: 'lg-stat' },
+          e('div', { className: 'lg-stat-label' }, 'Due in next 7 days'),
+          e('div', { className: 'lg-stat-value amber' }, fmtMoney(dueThisWeekTotal)),
+          e('div', { className: 'lg-sub', style: { marginTop: 4 } }, dueThisWeek.length + ' item' + (dueThisWeek.length === 1 ? '' : 's'))
+        ),
+        e('div', { className: 'lg-stat' },
+          e('div', { className: 'lg-stat-label' }, 'Overdue'),
+          e('div', { className: 'lg-stat-value', style: { color: overdueCount ? 'var(--rust)' : 'var(--ink)' } }, overdueCount)
+        )
+      ),
+
+      showForm && e('form', { className: 'lg-form', onSubmit: submit },
+        err && e('div', { className: 'lg-field full', style: { color: 'var(--rust)', fontSize: 12.5 } }, err),
+        e('div', { className: 'lg-field full' },
+          e('label', null, 'Name'),
+          e('input', { type: 'text', placeholder: 'e.g. Netflix, Electricity', value: form.name, onChange: ev => setForm({ ...form, name: ev.target.value }) })
+        ),
+        e('div', { className: 'lg-field' },
+          e('label', null, 'Amount (AUD)'),
+          e('input', { type: 'number', step: '0.01', min: '0', placeholder: '0.00', value: form.amount, onChange: ev => setForm({ ...form, amount: ev.target.value }) })
+        ),
+        e('div', { className: 'lg-field' },
+          e('label', null, 'Category'),
+          e('select', { value: form.category, onChange: ev => setForm({ ...form, category: ev.target.value }) },
+            CATEGORIES.map(c => e('option', { key: c, value: c }, c))
+          )
+        ),
+        e('div', { className: 'lg-field' },
+          e('label', null, 'Frequency'),
+          e('select', { value: form.frequency, onChange: ev => setForm({ ...form, frequency: ev.target.value }) },
+            FREQUENCIES.map(f => e('option', { key: f.id, value: f.id }, f.label))
+          )
+        ),
+        e('div', { className: 'lg-field' },
+          e('label', null, 'Next due date'),
+          e('input', { type: 'date', value: form.dueDate, onChange: ev => setForm({ ...form, dueDate: ev.target.value }) })
+        ),
+        e('div', { className: 'lg-field' },
+          e('label', null, 'Payment method'),
+          e('input', { type: 'text', placeholder: 'e.g. Visa ...4321', value: form.paymentMethod, onChange: ev => setForm({ ...form, paymentMethod: ev.target.value }) })
+        ),
+        e('div', { className: 'lg-field full' },
+          e('label', null, 'Notes'),
+          e('textarea', { rows: 2, placeholder: 'Optional', value: form.notes, onChange: ev => setForm({ ...form, notes: ev.target.value }) })
+        ),
+        e('div', { className: 'lg-form-actions' },
+          e('button', { type: 'button', className: 'lg-btn lg-btn-ghost', onClick: closeForm }, 'Cancel'),
+          e('button', { type: 'submit', className: 'lg-btn lg-btn-primary' }, editingId ? 'Save changes' : 'Add expense')
+        )
+      ),
+
+      catList.length > 0 && e('div', null,
+        e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, 'By category (monthly equivalent)')),
+        e('div', { className: 'lg-cats' },
+          catList.map(([cat, total]) =>
+            e('div', { className: 'lg-cat-bar-row', key: cat },
+              e('div', { className: 'lg-cat-label' }, cat),
+              e('div', { className: 'lg-cat-track' }, e('div', { className: 'lg-cat-fill', style: { width: (total / maxCat * 100) + '%' } })),
+              e('div', { className: 'lg-cat-amount' }, fmtMoney(total))
+            )
+          )
+        )
+      ),
+
+      e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, 'All expenses')),
+
+      sorted.length === 0
+        ? e('div', { className: 'lg-empty' },
+            e('strong', null, 'Nothing tracked yet'),
+            'Add your first subscription or bill to get started.'
+          )
+        : e('div', { className: 'lg-list' },
+            sorted.map(it => {
+              const status = statusFor(it.dueDate, it.frequency);
+              return e('div', { className: 'lg-row status-' + status, key: it.id },
+                e('div', { className: 'lg-row-main' },
+                  e('div', { className: 'lg-row-name' }, it.name),
+                  e('div', { className: 'lg-row-meta' },
+                    e('span', { className: 'lg-tag' }, it.category),
+                    e('span', null, freqMeta(it.frequency).label),
+                    it.paymentMethod && e('span', null, it.paymentMethod)
+                  ),
+                  it.notes && e('div', { className: 'lg-row-meta', style: { marginTop: 4, fontStyle: 'italic' } }, it.notes)
+                ),
+                e('div', { className: 'lg-row-due status-' + status }, fmtDueLabel(it.dueDate)),
+                e('div', { className: 'lg-row-amount' }, fmtMoney(it.amount)),
+                e('div', { className: 'lg-row-actions' },
+                  e('button', {
+                    className: 'lg-sync-btn ' + (syncStatus[it.id] || ''),
+                    disabled: syncStatus[it.id] === 'pending',
+                    onClick: () => syncToCalendar(it),
+                    title: 'Add to Google Calendar'
+                  },
+                    syncStatus[it.id] === 'pending' ? '…' :
+                    syncStatus[it.id] === 'success' ? '✓ Synced' :
+                    syncStatus[it.id] === 'error' ? '⚠ Retry' : '📅 Add to Calendar'
+                  ),
+                  e('button', { className: 'lg-icon-btn', title: 'Mark paid / advance', onClick: () => markPaid(it) }, '✓'),
+                  e('button', { className: 'lg-icon-btn', title: 'Edit', onClick: () => openEdit(it) }, '✎'),
+                  e('button', { className: 'lg-icon-btn', title: 'Delete', onClick: () => remove(it.id) }, '✕')
+                )
+              );
+            })
+          ),
+
+      e('div', { className: 'lg-footer-note' }, 'Saved automatically — your data stays on this account and reloads next time you open this.')
+    );
+  }
+
+  const root = ReactDOM.createRoot(document.getElementById('ledger-root'));
+  root.render(e(App));
+})();
+</script>
