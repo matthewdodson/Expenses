@@ -381,11 +381,12 @@
     const [syncAllStatus, setSyncAllStatus] = React.useState('idle');
     const [restoreMsg, setRestoreMsg] = React.useState('');
     const fileInputRef = React.useRef(null);
+    const [autoPayFilter, setAutoPayFilter] = React.useState('all');
 
     function emptyForm() {
       return {
         name: '', amount: '', category: CATEGORIES[0], frequency: 'monthly',
-        dueDate: new Date().toISOString().slice(0, 10), paymentMethod: '', notes: ''
+        dueDate: new Date().toISOString().slice(0, 10), paymentMethod: '', notes: '', autoPay: false
       };
     }
 
@@ -414,7 +415,7 @@
       setForm({
         name: item.name, amount: String(item.amount), category: item.category,
         frequency: item.frequency, dueDate: item.dueDate,
-        paymentMethod: item.paymentMethod || '', notes: item.notes || ''
+        paymentMethod: item.paymentMethod || '', notes: item.notes || '', autoPay: !!item.autoPay
       });
       setEditingId(item.id);
       setErr('');
@@ -433,14 +434,14 @@
         const next = items.map(it => it.id === editingId ? {
           ...it, name: form.name.trim(), amount: amt, category: form.category,
           frequency: form.frequency, dueDate: form.dueDate,
-          paymentMethod: form.paymentMethod.trim(), notes: form.notes.trim()
+          paymentMethod: form.paymentMethod.trim(), notes: form.notes.trim(), autoPay: !!form.autoPay
         } : it);
         persist(next);
       } else {
         const newItem = {
           id: uid(), name: form.name.trim(), amount: amt, category: form.category,
           frequency: form.frequency, dueDate: form.dueDate,
-          paymentMethod: form.paymentMethod.trim(), notes: form.notes.trim()
+          paymentMethod: form.paymentMethod.trim(), notes: form.notes.trim(), autoPay: !!form.autoPay
         };
         persist([...items, newItem]);
       }
@@ -669,6 +670,13 @@
           e('input', { type: 'text', placeholder: 'e.g. Visa ••••4321, ANZ savings ••1187', value: form.paymentMethod, onChange: ev => setForm({ ...form, paymentMethod: ev.target.value }) }),
           e('div', { style: { fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 } }, 'Use a masked reference, not the full card or account number.')
         ),
+        e('div', { className: 'lg-field', style: { justifyContent: 'center' } },
+          e('label', null, 'Auto-pay'),
+          e('label', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 500, cursor: 'pointer' } },
+            e('input', { type: 'checkbox', checked: !!form.autoPay, onChange: ev => setForm({ ...form, autoPay: ev.target.checked }), style: { width: 16, height: 16 } }),
+            'Charged automatically'
+          )
+        ),
         e('div', { className: 'lg-field full' },
           e('label', null, 'Notes'),
           e('textarea', { rows: 2, placeholder: 'Optional', value: form.notes, onChange: ev => setForm({ ...form, notes: ev.target.value }) })
@@ -692,29 +700,47 @@
         )
       ),
 
-      e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, 'All expenses')),
-
-      sorted.length === 0
-        ? e('div', { className: 'lg-empty' },
-            e('strong', null, 'Nothing tracked yet'),
-            'Add your first subscription or bill to get started.'
+      e('div', { className: 'lg-section-head' },
+        e('div', { className: 'lg-section-title' }, 'All expenses'),
+        e('div', { className: 'lg-toolbar' },
+          [['all', 'All'], ['auto', 'Auto-pay'], ['manual', 'Manual']].map(([val, label]) =>
+            e('button', {
+              key: val,
+              className: 'lg-btn ' + (autoPayFilter === val ? 'lg-btn-primary' : 'lg-btn-ghost'),
+              style: { padding: '6px 12px', fontSize: 12 },
+              onClick: () => setAutoPayFilter(val)
+            }, label)
           )
-        : e('div', { className: 'lg-list' },
-            sorted.map(it => {
-              const status = statusFor(it.dueDate, it.frequency);
-              return e('div', { className: 'lg-row status-' + status, key: it.id },
-                e('div', { className: 'lg-row-main' },
-                  e('div', { className: 'lg-row-name' }, it.name),
-                  e('div', { className: 'lg-row-meta' },
-                    e('span', { className: 'lg-tag' }, it.category),
-                    e('span', null, freqMeta(it.frequency).label),
-                    it.paymentMethod && e('span', null, it.paymentMethod)
-                  ),
-                  it.notes && e('div', { className: 'lg-row-meta', style: { marginTop: 4, fontStyle: 'italic' } }, it.notes)
+        )
+      ),
+
+      (() => {
+        const filteredSorted = sorted.filter(it =>
+          autoPayFilter === 'all' ? true : autoPayFilter === 'auto' ? !!it.autoPay : !it.autoPay
+        );
+        if (filteredSorted.length === 0) {
+          return e('div', { className: 'lg-empty' },
+            e('strong', null, items.length === 0 ? 'Nothing tracked yet' : 'No matches'),
+            items.length === 0 ? 'Add your first subscription or bill to get started.' : 'Nothing matches this filter yet.'
+          );
+        }
+        return e('div', { className: 'lg-list' },
+          filteredSorted.map(it => {
+            const status = statusFor(it.dueDate, it.frequency);
+            return e('div', { className: 'lg-row status-' + status, key: it.id },
+              e('div', { className: 'lg-row-main' },
+                e('div', { className: 'lg-row-name' }, it.name),
+                e('div', { className: 'lg-row-meta' },
+                  e('span', { className: 'lg-tag' }, it.category),
+                  e('span', null, freqMeta(it.frequency).label),
+                  it.autoPay && e('span', { className: 'lg-tag', style: { background: 'var(--sage-dim)', color: 'var(--sage)' } }, 'Auto-pay'),
+                  it.paymentMethod && e('span', null, it.paymentMethod)
                 ),
-                e('div', { className: 'lg-row-due status-' + status }, fmtDueLabel(it.dueDate)),
-                e('div', { className: 'lg-row-amount' }, fmtMoney(it.amount)),
-                e('div', { className: 'lg-row-actions' },
+                it.notes && e('div', { className: 'lg-row-meta', style: { marginTop: 4, fontStyle: 'italic' } }, it.notes)
+              ),
+              e('div', { className: 'lg-row-due status-' + status }, fmtDueLabel(it.dueDate)),
+              e('div', { className: 'lg-row-amount' }, fmtMoney(it.amount)),
+              e('div', { className: 'lg-row-actions' },
                   e('button', {
                     className: 'lg-sync-btn ' + (syncStatus[it.id] || ''),
                     disabled: syncStatus[it.id] === 'pending',
@@ -731,7 +757,8 @@
                 )
               );
             })
-          ),
+          );
+      })(),
 
       e('div', { className: 'lg-footer-note' },
         hasClaudeStorage
