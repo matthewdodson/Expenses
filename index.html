@@ -398,6 +398,7 @@
     const fileInputRef = React.useRef(null);
     const [autoPayFilter, setAutoPayFilter] = React.useState('all');
     const [categoryFilter, setCategoryFilter] = React.useState('all');
+    const [paymentMethodFilter, setPaymentMethodFilter] = React.useState('all');
 
     function emptyForm() {
       return {
@@ -771,9 +772,31 @@
       })(),
 
       (() => {
+        const methodsPresent = Array.from(new Set(items.map(it => it.paymentMethod).filter(Boolean)));
+        const methodOptions = Array.from(new Set([...PAYMENT_METHODS, ...methodsPresent]));
+        if (methodOptions.length === 0) return null;
+        return e('div', { className: 'lg-toolbar', style: { flexWrap: 'wrap', marginBottom: 14 } },
+          e('button', {
+            className: 'lg-btn ' + (paymentMethodFilter === 'all' ? 'lg-btn-primary' : 'lg-btn-ghost'),
+            style: { padding: '6px 12px', fontSize: 12 },
+            onClick: () => setPaymentMethodFilter('all')
+          }, 'All payment methods'),
+          methodOptions.map(m =>
+            e('button', {
+              key: m,
+              className: 'lg-btn ' + (paymentMethodFilter === m ? 'lg-btn-primary' : 'lg-btn-ghost'),
+              style: { padding: '6px 12px', fontSize: 12 },
+              onClick: () => setPaymentMethodFilter(m)
+            }, m)
+          )
+        );
+      })(),
+
+      (() => {
         const filteredSorted = sorted.filter(it =>
           (autoPayFilter === 'all' ? true : autoPayFilter === 'auto' ? !!it.autoPay : !it.autoPay) &&
-          (categoryFilter === 'all' ? true : it.category === categoryFilter)
+          (categoryFilter === 'all' ? true : it.category === categoryFilter) &&
+          (paymentMethodFilter === 'all' ? true : it.paymentMethod === paymentMethodFilter)
         );
         if (filteredSorted.length === 0) {
           return e('div', { className: 'lg-empty' },
