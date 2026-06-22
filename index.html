@@ -288,6 +288,7 @@
 (function () {
   const e = React.createElement;
   const STORAGE_KEY = 'expenses-v1';
+  const EXCLUDED_CATS_KEY = 'excluded-categories-v1';
 
   const CATEGORIES = ['Streaming', 'Utilities', 'Mortgage', 'Insurance', 'Subscriptions', 'Phone/Internet', 'Nonna', 'Other'];
 
@@ -403,6 +404,8 @@
     const [categoryFilter, setCategoryFilter] = React.useState('all');
     const [paymentMethodFilter, setPaymentMethodFilter] = React.useState('all');
     const [viewMode, setViewMode] = React.useState('monthly');
+    const [excludedCats, setExcludedCats] = React.useState([]);
+    const [showTotalSettings, setShowTotalSettings] = React.useState(false);
 
     function emptyForm() {
       return {
@@ -430,9 +433,19 @@
             if (migrated) await storageSet(STORAGE_KEY, JSON.stringify(fixed));
           } catch (_) { /* corrupt data, ignore */ }
         }
+        const excludedRaw = await storageGet(EXCLUDED_CATS_KEY);
+        if (excludedRaw) {
+          try { setExcludedCats(JSON.parse(excludedRaw)); } catch (_) { /* ignore */ }
+        }
         setLoaded(true);
       })();
     }, []);
+
+    async function toggleExcludedCat(cat) {
+      const next = excludedCats.includes(cat) ? excludedCats.filter(c => c !== cat) : [...excludedCats, cat];
+      setExcludedCats(next);
+      await storageSet(EXCLUDED_CATS_KEY, JSON.stringify(next));
+    }
 
     async function persist(next) {
       setItems(next);
@@ -594,7 +607,9 @@
       const f = freqMeta(freqId);
       return viewMode === 'yearly' ? f.yearlyFactor : f.monthsFactor;
     }
-    const periodTotal = items.reduce((sum, it) => sum + it.amount * periodFactor(it.frequency), 0);
+    const periodTotal = items
+      .filter(it => !excludedCats.includes(it.category))
+      .reduce((sum, it) => sum + it.amount * periodFactor(it.frequency), 0);
     const dueThisWeek = items.filter(it => {
       const d = daysUntil(it.dueDate);
       return d !== null && d >= 0 && d <= 7;
@@ -604,6 +619,7 @@
 
     const catTotals = {};
     items.forEach(it => {
+      if (excludedCats.includes(it.category)) return;
       const eq = it.amount * periodFactor(it.frequency);
       catTotals[it.category] = (catTotals[it.category] || 0) + eq;
     });
@@ -662,7 +678,12 @@
         )
       ),
 
-      e('div', { className: 'lg-toolbar', style: { justifyContent: 'flex-end', marginBottom: 8 } },
+      e('div', { className: 'lg-toolbar', style: { justifyContent: 'flex-end', marginBottom: 8, gap: 10 } },
+        e('button', {
+          className: 'lg-btn lg-btn-ghost',
+          style: { padding: '5px 12px', fontSize: 12 },
+          onClick: () => setShowTotalSettings(s => !s)
+        }, '⚙ Customize total' + (excludedCats.length > 0 ? ` (${excludedCats.length} excluded)` : '')),
         ['monthly', 'yearly'].map(mode =>
           e('button', {
             key: mode,
@@ -673,10 +694,31 @@
         )
       ),
 
+      showTotalSettings && (() => {
+        const allCats = Array.from(new Set([...CATEGORIES, ...items.map(it => it.category)]));
+        return e('div', { className: 'lg-form', style: { gridTemplateColumns: '1fr', marginBottom: 16 } },
+          e('div', { style: { fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 8 } },
+            'Uncheck any category to leave it out of the total and category breakdown below. Doesn\u2019t affect the expense list itself.'),
+          e('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 10 } },
+            allCats.map(cat =>
+              e('label', { key: cat, style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' } },
+                e('input', {
+                  type: 'checkbox',
+                  checked: !excludedCats.includes(cat),
+                  onChange: () => toggleExcludedCat(cat)
+                }),
+                e('span', { style: { color: catColor(cat).fg, fontWeight: 600 } }, cat)
+              )
+            )
+          )
+        );
+      })(),
+
       e('div', { className: 'lg-stats' },
         e('div', { className: 'lg-stat' },
           e('div', { className: 'lg-stat-label' }, viewMode === 'yearly' ? 'Yearly total' : 'Monthly total'),
-          e('div', { className: 'lg-stat-value teal' }, fmtMoney(periodTotal))
+          e('div', { className: 'lg-stat-value teal' }, fmtMoney(periodTotal)),
+          excludedCats.length > 0 && e('div', { className: 'lg-sub', style: { marginTop: 4 } }, `Excludes ${excludedCats.length} categor${excludedCats.length === 1 ? 'y' : 'ies'}`)
         ),
         e('div', { className: 'lg-stat' },
           e('div', { className: 'lg-stat-label' }, 'Due in next 7 days'),
