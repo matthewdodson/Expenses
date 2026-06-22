@@ -352,7 +352,7 @@
     today.setHours(0,0,0,0);
     return Math.round((d - today) / 86400000);
   }
-  function statusFor(dateStr, freq) {
+  function statusFor(dateStr, freq, autoPay) {
     if (freq === 'one-time') {
       const days = daysUntil(dateStr);
       if (days === null) return 'ok';
@@ -362,7 +362,7 @@
     }
     const days = daysUntil(dateStr);
     if (days === null) return 'ok';
-    if (days < 0) return 'overdue';
+    if (days < 0) return autoPay ? 'ok' : 'overdue';
     if (days <= 3) return 'soon';
     return 'ok';
   }
@@ -377,12 +377,13 @@
     else return dateStr;
     return next.toISOString().slice(0, 10);
   }
-  function fmtDueLabel(dateStr) {
+  function fmtDueLabel(dateStr, autoPay) {
     const days = daysUntil(dateStr);
     if (days === null) return '—';
-    if (days === 0) return 'Due today';
+    if (days === 0) return autoPay ? 'Auto-charged today' : 'Due today';
     if (days === 1) return 'Due tomorrow';
     if (days > 1) return `Due in ${days}d`;
+    if (autoPay) return `Auto-charged ${Math.abs(days)}d ago`;
     if (days === -1) return '1d overdue';
     return `${Math.abs(days)}d overdue`;
   }
@@ -599,7 +600,7 @@
       return d !== null && d >= 0 && d <= 7;
     });
     const dueThisWeekTotal = dueThisWeek.reduce((s, it) => s + it.amount, 0);
-    const overdueCount = items.filter(it => statusFor(it.dueDate, it.frequency) === 'overdue').length;
+    const overdueCount = items.filter(it => statusFor(it.dueDate, it.frequency, it.autoPay) === 'overdue').length;
 
     const catTotals = {};
     items.forEach(it => {
@@ -654,8 +655,8 @@
             ? `${overdueCount} payment${overdueCount === 1 ? '' : 's'} overdue`
             : `${dueThisWeek.length} payment${dueThisWeek.length === 1 ? '' : 's'} due this week`),
           e('div', { className: 'lg-alert-list' },
-            sorted.filter(it => ['overdue', 'soon'].includes(statusFor(it.dueDate, it.frequency))).slice(0, 6).map(it =>
-              e('span', { className: 'lg-alert-chip', key: it.id }, `${it.name} · ${fmtDueLabel(it.dueDate)}`)
+            sorted.filter(it => ['overdue', 'soon'].includes(statusFor(it.dueDate, it.frequency, it.autoPay))).slice(0, 6).map(it =>
+              e('span', { className: 'lg-alert-chip', key: it.id }, `${it.name} · ${fmtDueLabel(it.dueDate, it.autoPay)}`)
             )
           )
         )
@@ -825,7 +826,7 @@
         }
         return e('div', { className: 'lg-list' },
           filteredSorted.map(it => {
-            const status = statusFor(it.dueDate, it.frequency);
+            const status = statusFor(it.dueDate, it.frequency, it.autoPay);
             return e('div', { className: 'lg-row status-' + status, key: it.id },
               e('div', { className: 'lg-row-main' },
                 e('div', { className: 'lg-row-name' }, it.name),
@@ -837,7 +838,7 @@
                 ),
                 it.notes && e('div', { className: 'lg-row-meta', style: { marginTop: 4, fontStyle: 'italic' } }, it.notes)
               ),
-              e('div', { className: 'lg-row-due status-' + status }, fmtDueLabel(it.dueDate)),
+              e('div', { className: 'lg-row-due status-' + status }, fmtDueLabel(it.dueDate, it.autoPay)),
               e('div', { className: 'lg-row-amount' }, fmtMoney(it.amount)),
               e('div', { className: 'lg-row-actions' },
                   e('button', {
