@@ -380,7 +380,7 @@
   }
   function fmtDueLabel(dateStr, autoPay) {
     const days = daysUntil(dateStr);
-    if (days === null) return '—';
+    if (days === null) return 'Ongoing';
     if (days === 0) return autoPay ? 'Auto-charged today' : 'Due today';
     if (days === 1) return 'Due tomorrow';
     if (days > 1) return `Due in ${days}d`;
@@ -410,7 +410,8 @@
     function emptyForm() {
       return {
         name: '', amount: '', category: CATEGORIES[0], frequency: 'monthly',
-        dueDate: new Date().toISOString().slice(0, 10), paymentMethod: '', notes: '', autoPay: false
+        hasDueDate: true, dueDate: new Date().toISOString().slice(0, 10),
+        paymentMethod: '', notes: '', autoPay: false
       };
     }
 
@@ -461,7 +462,8 @@
     function openEdit(item) {
       setForm({
         name: item.name, amount: String(item.amount), category: item.category,
-        frequency: item.frequency, dueDate: item.dueDate,
+        frequency: item.frequency, hasDueDate: !!item.dueDate,
+        dueDate: item.dueDate || new Date().toISOString().slice(0, 10),
         paymentMethod: item.paymentMethod || '', notes: item.notes || '', autoPay: !!item.autoPay
       });
       setEditingId(item.id);
@@ -475,19 +477,21 @@
       const amt = parseFloat(form.amount);
       if (!form.name.trim()) { setErr('Give it a name.'); return; }
       if (isNaN(amt) || amt <= 0) { setErr('Amount must be a positive number.'); return; }
-      if (!form.dueDate) { setErr('Pick a due date.'); return; }
+      if (form.hasDueDate && !form.dueDate) { setErr('Pick a due date, or switch off "Has a fixed due date".'); return; }
+      if (!form.hasDueDate && form.frequency === 'one-time') { setErr('A one-time cost needs a due date so it knows when it happened.'); return; }
+      const effectiveDueDate = form.hasDueDate ? form.dueDate : '';
 
       if (editingId) {
         const next = items.map(it => it.id === editingId ? {
           ...it, name: form.name.trim(), amount: amt, category: form.category,
-          frequency: form.frequency, dueDate: form.dueDate,
+          frequency: form.frequency, dueDate: effectiveDueDate,
           paymentMethod: form.paymentMethod.trim(), notes: form.notes.trim(), autoPay: !!form.autoPay
         } : it);
         persist(next);
       } else {
         const newItem = {
           id: uid(), name: form.name.trim(), amount: amt, category: form.category,
-          frequency: form.frequency, dueDate: form.dueDate,
+          frequency: form.frequency, dueDate: effectiveDueDate,
           paymentMethod: form.paymentMethod.trim(), notes: form.notes.trim(), autoPay: !!form.autoPay
         };
         persist([...items, newItem]);
@@ -750,10 +754,23 @@
         e('div', { className: 'lg-field' },
           e('label', null, 'Frequency'),
           e('select', { value: form.frequency, onChange: ev => setForm({ ...form, frequency: ev.target.value }) },
-            FREQUENCIES.map(f => e('option', { key: f.id, value: f.id }, f.label))
+            FREQUENCIES.filter(f => form.hasDueDate || f.id !== 'one-time').map(f => e('option', { key: f.id, value: f.id }, f.label))
           )
         ),
-        e('div', { className: 'lg-field' },
+        e('div', { className: 'lg-field full', style: { background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 7, padding: '8px 10px', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' } },
+          e('label', { style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 500, cursor: 'pointer', textTransform: 'none' } },
+            e('input', {
+              type: 'checkbox', checked: !!form.hasDueDate, style: { width: 16, height: 16 },
+              onChange: ev => {
+                const checked = ev.target.checked;
+                setForm(f => ({ ...f, hasDueDate: checked, frequency: (!checked && f.frequency === 'one-time') ? 'monthly' : f.frequency }));
+              }
+            }),
+            'This has a fixed due date'
+          ),
+          !form.hasDueDate && e('span', { style: { fontSize: 11.5, color: 'var(--ink-soft)' } }, 'Use for ongoing costs like food or petrol')
+        ),
+        form.hasDueDate && e('div', { className: 'lg-field' },
           e('label', null, 'Next due date'),
           e('input', { type: 'date', value: form.dueDate, onChange: ev => setForm({ ...form, dueDate: ev.target.value }) })
         ),
@@ -883,7 +900,7 @@
               e('div', { className: 'lg-row-due status-' + status }, fmtDueLabel(it.dueDate, it.autoPay)),
               e('div', { className: 'lg-row-amount' }, fmtMoney(it.amount)),
               e('div', { className: 'lg-row-actions' },
-                  e('button', {
+                  it.dueDate && e('button', {
                     className: 'lg-sync-btn ' + (syncStatus[it.id] || ''),
                     disabled: syncStatus[it.id] === 'pending',
                     onClick: () => syncToCalendar(it),
@@ -893,7 +910,7 @@
                     syncStatus[it.id] === 'success' ? '✓ Synced' :
                     syncStatus[it.id] === 'error' ? '⚠ Retry' : '📅 Add to Calendar'
                   ),
-                  e('button', { className: 'lg-icon-btn', title: 'Mark paid / advance', onClick: () => markPaid(it) }, '✓'),
+                  it.dueDate && e('button', { className: 'lg-icon-btn', title: 'Mark paid / advance', onClick: () => markPaid(it) }, '✓'),
                   e('button', { className: 'lg-icon-btn', title: 'Edit', onClick: () => openEdit(it) }, '✎'),
                   e('button', { className: 'lg-icon-btn', title: 'Delete', onClick: () => remove(it.id) }, '✕')
                 )
