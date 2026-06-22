@@ -303,6 +303,8 @@
   };
   const DEFAULT_CATEGORY_COLOR = { fg: '#5B6168', bg: '#E4E2DC' };
   function catColor(cat) { return CATEGORY_COLORS[cat] || DEFAULT_CATEGORY_COLOR; }
+
+  const PAYMENT_METHODS = ['Visa 3046', 'PayPal', 'Acct 135', 'Acct 090'];
   const FREQUENCIES = [
     { id: 'weekly', label: 'Weekly', monthsFactor: 4.33 },
     { id: 'monthly', label: 'Monthly', monthsFactor: 1 },
@@ -694,8 +696,10 @@
         ),
         e('div', { className: 'lg-field' },
           e('label', null, 'Payment method'),
-          e('input', { type: 'text', placeholder: 'e.g. Visa ••••4321, ANZ savings ••1187', value: form.paymentMethod, onChange: ev => setForm({ ...form, paymentMethod: ev.target.value }) }),
-          e('div', { style: { fontSize: 11, color: 'var(--ink-soft)', marginTop: 2 } }, 'Use a masked reference, not the full card or account number.')
+          e('select', { value: form.paymentMethod, onChange: ev => setForm({ ...form, paymentMethod: ev.target.value }) },
+            e('option', { value: '' }, 'Select…'),
+            PAYMENT_METHODS.map(m => e('option', { key: m, value: m }, m))
+          )
         ),
         e('div', { className: 'lg-field', style: { justifyContent: 'center' } },
           e('label', null, 'Auto-pay'),
