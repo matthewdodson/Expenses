@@ -306,13 +306,10 @@
   const DEFAULT_CATEGORY_COLOR = { fg: '#5B6168', bg: '#E4E2DC' };
   function catColor(cat) { return CATEGORY_COLORS[cat] || DEFAULT_CATEGORY_COLOR; }
 
-  const INCOME_CATEGORIES = ['Salary', 'Freelance', 'Investment', 'Government/Benefits', 'Gift', 'Other'];
+  const INCOME_CATEGORIES = ['Salary', 'Investment', 'Other'];
   const INCOME_CATEGORY_COLORS = {
     'Salary': { fg: '#2F6E62', bg: '#DCE7E3' },
-    'Freelance': { fg: '#6B4FA0', bg: '#EDE6F5' },
     'Investment': { fg: '#C68A2E', bg: '#F3E6CC' },
-    'Government/Benefits': { fg: '#2F5A8A', bg: '#DCE5F0' },
-    'Gift': { fg: '#A8447A', bg: '#F2DCE9' },
     'Other': { fg: '#5B6168', bg: '#E4E2DC' },
   };
   function incomeCatColor(cat) { return INCOME_CATEGORY_COLORS[cat] || DEFAULT_CATEGORY_COLOR; }
@@ -459,7 +456,20 @@
         }
         const incomeValue = await storageGet(INCOME_STORAGE_KEY);
         if (incomeValue) {
-          try { setIncomeItems(JSON.parse(incomeValue)); } catch (_) { /* corrupt data, ignore */ }
+          try {
+            const parsedIncome = JSON.parse(incomeValue);
+            const INCOME_CATEGORY_MIGRATIONS = { 'Freelance': 'Other', 'Government/Benefits': 'Other', 'Gift': 'Other' };
+            let incomeMigrated = false;
+            const fixedIncome = parsedIncome.map(it => {
+              if (INCOME_CATEGORY_MIGRATIONS[it.category]) {
+                incomeMigrated = true;
+                return { ...it, category: INCOME_CATEGORY_MIGRATIONS[it.category] };
+              }
+              return it;
+            });
+            setIncomeItems(fixedIncome);
+            if (incomeMigrated) await storageSet(INCOME_STORAGE_KEY, JSON.stringify(fixedIncome));
+          } catch (_) { /* corrupt data, ignore */ }
         }
         const excludedRaw = await storageGet(EXCLUDED_CATS_KEY);
         if (excludedRaw) {
