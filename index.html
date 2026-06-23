@@ -288,6 +288,7 @@
 (function () {
   const e = React.createElement;
   const STORAGE_KEY = 'expenses-v1';
+  const INCOME_STORAGE_KEY = 'income-v1';
   const EXCLUDED_CATS_KEY = 'excluded-categories-v1';
 
   const CATEGORIES = ['Streaming', 'Utilities', 'Mortgage', 'Insurance', 'Subscriptions', 'Phone/Internet', 'Nonna', 'Other'];
@@ -304,6 +305,17 @@
   };
   const DEFAULT_CATEGORY_COLOR = { fg: '#5B6168', bg: '#E4E2DC' };
   function catColor(cat) { return CATEGORY_COLORS[cat] || DEFAULT_CATEGORY_COLOR; }
+
+  const INCOME_CATEGORIES = ['Salary', 'Freelance', 'Investment', 'Government/Benefits', 'Gift', 'Other'];
+  const INCOME_CATEGORY_COLORS = {
+    'Salary': { fg: '#2F6E62', bg: '#DCE7E3' },
+    'Freelance': { fg: '#6B4FA0', bg: '#EDE6F5' },
+    'Investment': { fg: '#C68A2E', bg: '#F3E6CC' },
+    'Government/Benefits': { fg: '#2F5A8A', bg: '#DCE5F0' },
+    'Gift': { fg: '#A8447A', bg: '#F2DCE9' },
+    'Other': { fg: '#5B6168', bg: '#E4E2DC' },
+  };
+  function incomeCatColor(cat) { return INCOME_CATEGORY_COLORS[cat] || DEFAULT_CATEGORY_COLOR; }
 
   const PAYMENT_METHODS = ['Visa 3046', 'PayPal', 'Acct 135', 'Acct 090'];
   const FREQUENCIES = [
@@ -390,6 +402,7 @@
   }
 
   function App() {
+    const [activeTab, setActiveTab] = React.useState('expenses');
     const [items, setItems] = React.useState([]);
     const [loaded, setLoaded] = React.useState(false);
     const [showForm, setShowForm] = React.useState(false);
@@ -407,12 +420,22 @@
     const [excludedCats, setExcludedCats] = React.useState([]);
     const [showTotalSettings, setShowTotalSettings] = React.useState(false);
 
+    const [incomeItems, setIncomeItems] = React.useState([]);
+    const [showIncomeForm, setShowIncomeForm] = React.useState(false);
+    const [editingIncomeId, setEditingIncomeId] = React.useState(null);
+    const [incomeForm, setIncomeForm] = React.useState(emptyIncomeForm());
+    const [incomeErr, setIncomeErr] = React.useState('');
+
     function emptyForm() {
       return {
         name: '', amount: '', category: CATEGORIES[0], frequency: 'monthly',
         hasDueDate: true, dueDate: new Date().toISOString().slice(0, 10),
         paymentMethod: '', notes: '', autoPay: false
       };
+    }
+
+    function emptyIncomeForm() {
+      return { name: '', amount: '', category: INCOME_CATEGORIES[0], frequency: 'monthly', paymentMethod: '', notes: '' };
     }
 
     React.useEffect(() => {
@@ -434,6 +457,10 @@
             if (migrated) await storageSet(STORAGE_KEY, JSON.stringify(fixed));
           } catch (_) { /* corrupt data, ignore */ }
         }
+        const incomeValue = await storageGet(INCOME_STORAGE_KEY);
+        if (incomeValue) {
+          try { setIncomeItems(JSON.parse(incomeValue)); } catch (_) { /* corrupt data, ignore */ }
+        }
         const excludedRaw = await storageGet(EXCLUDED_CATS_KEY);
         if (excludedRaw) {
           try { setExcludedCats(JSON.parse(excludedRaw)); } catch (_) { /* ignore */ }
@@ -441,6 +468,54 @@
         setLoaded(true);
       })();
     }, []);
+
+    async function persistIncome(next) {
+      setIncomeItems(next);
+      await storageSet(INCOME_STORAGE_KEY, JSON.stringify(next));
+    }
+
+    function openAddIncome() {
+      setIncomeForm(emptyIncomeForm());
+      setEditingIncomeId(null);
+      setIncomeErr('');
+      setShowIncomeForm(true);
+    }
+    function openEditIncome(item) {
+      setIncomeForm({
+        name: item.name, amount: String(item.amount), category: item.category,
+        frequency: item.frequency, paymentMethod: item.paymentMethod || '', notes: item.notes || ''
+      });
+      setEditingIncomeId(item.id);
+      setIncomeErr('');
+      setShowIncomeForm(true);
+    }
+    function closeIncomeForm() { setShowIncomeForm(false); setEditingIncomeId(null); }
+
+    function submitIncome(ev) {
+      ev.preventDefault();
+      const amt = parseFloat(incomeForm.amount);
+      if (!incomeForm.name.trim()) { setIncomeErr('Give it a name.'); return; }
+      if (isNaN(amt) || amt <= 0) { setIncomeErr('Amount must be a positive number.'); return; }
+
+      if (editingIncomeId) {
+        const next = incomeItems.map(it => it.id === editingIncomeId ? {
+          ...it, name: incomeForm.name.trim(), amount: amt, category: incomeForm.category,
+          frequency: incomeForm.frequency, paymentMethod: incomeForm.paymentMethod.trim(), notes: incomeForm.notes.trim()
+        } : it);
+        persistIncome(next);
+      } else {
+        const newItem = {
+          id: uid(), name: incomeForm.name.trim(), amount: amt, category: incomeForm.category,
+          frequency: incomeForm.frequency, paymentMethod: incomeForm.paymentMethod.trim(), notes: incomeForm.notes.trim()
+        };
+        persistIncome([...incomeItems, newItem]);
+      }
+      closeIncomeForm();
+    }
+
+    function removeIncome(id) {
+      persistIncome(incomeItems.filter(it => it.id !== id));
+    }
 
     async function toggleExcludedCat(cat) {
       const next = excludedCats.includes(cat) ? excludedCats.filter(c => c !== cat) : [...excludedCats, cat];
@@ -567,7 +642,8 @@
       const payload = {
         exportedAt: new Date().toISOString(),
         source: 'Ledger app',
-        expenses: items
+        expenses: items,
+        income: incomeItems
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -590,14 +666,18 @@
         try {
           const parsed = JSON.parse(reader.result);
           const list = Array.isArray(parsed) ? parsed : parsed.expenses;
+          const incomeList = Array.isArray(parsed) ? [] : (parsed.income || []);
           if (!Array.isArray(list)) { setRestoreMsg('error:Not a valid backup file.'); return; }
-          const valid = list.every(it => it && typeof it.name === 'string' && typeof it.amount === 'number' && typeof it.dueDate === 'string');
-          if (!valid) { setRestoreMsg('error:File format not recognized.'); return; }
-          const confirmReplace = window.confirm(`Restore ${list.length} expense(s) from this backup? This will replace what's currently in the app.`);
+          const valid = list.every(it => it && typeof it.name === 'string' && typeof it.amount === 'number');
+          const incomeValid = Array.isArray(incomeList) && incomeList.every(it => it && typeof it.name === 'string' && typeof it.amount === 'number');
+          if (!valid || !incomeValid) { setRestoreMsg('error:File format not recognized.'); return; }
+          const confirmReplace = window.confirm(`Restore ${list.length} expense(s) and ${incomeList.length} income source(s) from this backup? This will replace what's currently in the app.`);
           if (!confirmReplace) return;
           const withIds = list.map(it => ({ ...it, id: it.id || uid() }));
+          const incomeWithIds = incomeList.map(it => ({ ...it, id: it.id || uid() }));
           persist(withIds);
-          setRestoreMsg('success:Restored ' + list.length + ' expense(s).');
+          persistIncome(incomeWithIds);
+          setRestoreMsg('success:Restored ' + list.length + ' expense(s) and ' + incomeList.length + ' income source(s).');
         } catch (e) {
           setRestoreMsg('error:Could not read that file.');
         }
@@ -635,6 +715,17 @@
       return (da === null ? 9999 : da) - (db === null ? 9999 : db);
     });
 
+    const incomePeriodTotal = incomeItems.reduce((sum, it) => sum + it.amount * periodFactor(it.frequency), 0);
+    const incomeCatTotals = {};
+    incomeItems.forEach(it => {
+      const eq = it.amount * periodFactor(it.frequency);
+      incomeCatTotals[it.category] = (incomeCatTotals[it.category] || 0) + eq;
+    });
+    const incomeCatList = Object.entries(incomeCatTotals).sort((a, b) => b[1] - a[1]);
+    const maxIncomeCat = incomeCatList.length ? incomeCatList[0][1] : 1;
+    const sortedIncome = [...incomeItems].sort((a, b) => b.amount * periodFactor(b.frequency) - a.amount * periodFactor(a.frequency));
+    const netTotal = incomePeriodTotal - periodTotal;
+
     if (!loaded) {
       return e('div', { className: 'lg-wrap' }, e('div', { className: 'lg-empty' }, 'Loading your ledger…'));
     }
@@ -643,21 +734,61 @@
       e('div', { className: 'lg-header' },
         e('div', null,
           e('div', { className: 'lg-title' }, 'Ledger'),
-          e('div', { className: 'lg-sub' }, 'Subscriptions & bills')
+          e('div', { className: 'lg-sub' }, 'Income & expenses')
         ),
         e('div', { className: 'lg-toolbar' },
-          e('button', {
+          activeTab === 'expenses' && e('button', {
             className: 'lg-btn lg-btn-ghost',
             disabled: syncAllStatus === 'pending',
             onClick: syncAllToCalendar
           }, syncAllStatus === 'pending' ? 'Syncing…' : '📅 Sync upcoming to Calendar'),
-          e('button', { className: 'lg-btn lg-btn-ghost', onClick: exportBackup, title: 'Download a JSON backup of all expenses' }, '⬇ Backup'),
+          e('button', { className: 'lg-btn lg-btn-ghost', onClick: exportBackup, title: 'Download a JSON backup of expenses and income' }, '⬇ Backup'),
           e('button', { className: 'lg-btn lg-btn-ghost', onClick: () => fileInputRef.current && fileInputRef.current.click(), title: 'Restore from a backup file' }, '⬆ Restore'),
           e('input', {
             type: 'file', accept: 'application/json', ref: fileInputRef,
             style: { display: 'none' }, onChange: handleRestoreFile
           }),
-          e('button', { className: 'lg-btn lg-btn-primary', onClick: openAdd }, '+ Add expense')
+          e('button', {
+            className: 'lg-btn lg-btn-primary',
+            onClick: activeTab === 'expenses' ? openAdd : openAddIncome
+          }, activeTab === 'expenses' ? '+ Add expense' : '+ Add income')
+        )
+      ),
+
+      e('div', { className: 'lg-stats' },
+        e('div', { className: 'lg-stat' },
+          e('div', { className: 'lg-stat-label' }, (viewMode === 'yearly' ? 'Yearly' : 'Monthly') + ' income'),
+          e('div', { className: 'lg-stat-value', style: { color: 'var(--sage)' } }, fmtMoney(incomePeriodTotal))
+        ),
+        e('div', { className: 'lg-stat' },
+          e('div', { className: 'lg-stat-label' }, (viewMode === 'yearly' ? 'Yearly' : 'Monthly') + ' expenses'),
+          e('div', { className: 'lg-stat-value', style: { color: 'var(--rust)' } }, fmtMoney(periodTotal))
+        ),
+        e('div', { className: 'lg-stat' },
+          e('div', { className: 'lg-stat-label' }, 'Net'),
+          e('div', { className: 'lg-stat-value', style: { color: netTotal >= 0 ? 'var(--teal)' : 'var(--rust)' } }, (netTotal >= 0 ? '+' : '−') + fmtMoney(Math.abs(netTotal)))
+        )
+      ),
+
+      e('div', { className: 'lg-toolbar', style: { justifyContent: 'space-between', marginBottom: 18 } },
+        e('div', { className: 'lg-toolbar' },
+          [['expenses', 'Expenses'], ['income', 'Income']].map(([tab, label]) =>
+            e('button', {
+              key: tab,
+              className: 'lg-btn ' + (activeTab === tab ? 'lg-btn-primary' : 'lg-btn-ghost'),
+              onClick: () => setActiveTab(tab)
+            }, label)
+          )
+        ),
+        e('div', { className: 'lg-toolbar' },
+          ['monthly', 'yearly'].map(mode =>
+            e('button', {
+              key: mode,
+              className: 'lg-btn ' + (viewMode === mode ? 'lg-btn-primary' : 'lg-btn-ghost'),
+              style: { padding: '5px 12px', fontSize: 12 },
+              onClick: () => setViewMode(mode)
+            }, mode === 'monthly' ? 'Monthly view' : 'Yearly view')
+          )
         )
       ),
 
@@ -667,6 +798,8 @@
       }, e('div', { className: 'lg-alert-icon' }, restoreMsg.startsWith('error:') ? '⚠' : '✓'),
         e('div', { className: 'lg-alert-body' }, restoreMsg.split(':').slice(1).join(':'))
       ),
+
+      activeTab === 'expenses' && e(React.Fragment, null,
 
       (overdueCount > 0 || dueThisWeek.length > 0) && e('div', { className: 'lg-alert ' + (overdueCount > 0 ? 'rust' : 'amber') },
         e('div', { className: 'lg-alert-icon' }, overdueCount > 0 ? '⚠' : '⏰'),
@@ -687,15 +820,7 @@
           className: 'lg-btn lg-btn-ghost',
           style: { padding: '5px 12px', fontSize: 12 },
           onClick: () => setShowTotalSettings(s => !s)
-        }, '⚙ Customize total' + (excludedCats.length > 0 ? ` (${excludedCats.length} excluded)` : '')),
-        ['monthly', 'yearly'].map(mode =>
-          e('button', {
-            key: mode,
-            className: 'lg-btn ' + (viewMode === mode ? 'lg-btn-primary' : 'lg-btn-ghost'),
-            style: { padding: '5px 12px', fontSize: 12 },
-            onClick: () => setViewMode(mode)
-          }, mode === 'monthly' ? 'Monthly view' : 'Yearly view')
-        )
+        }, '⚙ Customize total' + (excludedCats.length > 0 ? ` (${excludedCats.length} excluded)` : ''))
       ),
 
       showTotalSettings && (() => {
@@ -720,9 +845,9 @@
 
       e('div', { className: 'lg-stats' },
         e('div', { className: 'lg-stat' },
-          e('div', { className: 'lg-stat-label' }, viewMode === 'yearly' ? 'Yearly total' : 'Monthly total'),
-          e('div', { className: 'lg-stat-value teal' }, fmtMoney(periodTotal)),
-          excludedCats.length > 0 && e('div', { className: 'lg-sub', style: { marginTop: 4 } }, `Excludes ${excludedCats.length} categor${excludedCats.length === 1 ? 'y' : 'ies'}`)
+          e('div', { className: 'lg-stat-label' }, 'Tracked expenses'),
+          e('div', { className: 'lg-stat-value teal' }, items.length),
+          excludedCats.length > 0 && e('div', { className: 'lg-sub', style: { marginTop: 4 } }, `Excludes ${excludedCats.length} categor${excludedCats.length === 1 ? 'y' : 'ies'} from total`)
         ),
         e('div', { className: 'lg-stat' },
           e('div', { className: 'lg-stat-label' }, 'Due in next 7 days'),
@@ -917,7 +1042,93 @@
               );
             })
           );
-      })(),
+      })()
+
+      ), // end expenses tab fragment
+
+      activeTab === 'income' && e(React.Fragment, null,
+
+        showIncomeForm && e('form', { className: 'lg-form', onSubmit: submitIncome },
+          incomeErr && e('div', { className: 'lg-field full', style: { color: 'var(--rust)', fontSize: 12.5 } }, incomeErr),
+          e('div', { className: 'lg-field full' },
+            e('label', null, 'Name'),
+            e('input', { type: 'text', placeholder: 'e.g. Salary, Freelance client', value: incomeForm.name, onChange: ev => setIncomeForm({ ...incomeForm, name: ev.target.value }) })
+          ),
+          e('div', { className: 'lg-field' },
+            e('label', null, 'Amount (AUD)'),
+            e('input', { type: 'number', step: '0.01', min: '0', placeholder: '0.00', value: incomeForm.amount, onChange: ev => setIncomeForm({ ...incomeForm, amount: ev.target.value }) })
+          ),
+          e('div', { className: 'lg-field' },
+            e('label', null, 'Category'),
+            e('select', { value: incomeForm.category, onChange: ev => setIncomeForm({ ...incomeForm, category: ev.target.value }) },
+              INCOME_CATEGORIES.map(c => e('option', { key: c, value: c }, c))
+            )
+          ),
+          e('div', { className: 'lg-field' },
+            e('label', null, 'Frequency'),
+            e('select', { value: incomeForm.frequency, onChange: ev => setIncomeForm({ ...incomeForm, frequency: ev.target.value }) },
+              FREQUENCIES.map(f => e('option', { key: f.id, value: f.id }, f.label))
+            )
+          ),
+          e('div', { className: 'lg-field' },
+            e('label', null, 'Deposit account'),
+            e('select', { value: incomeForm.paymentMethod, onChange: ev => setIncomeForm({ ...incomeForm, paymentMethod: ev.target.value }) },
+              e('option', { value: '' }, 'Select…'),
+              PAYMENT_METHODS.map(m => e('option', { key: m, value: m }, m))
+            )
+          ),
+          e('div', { className: 'lg-field full' },
+            e('label', null, 'Notes'),
+            e('textarea', { rows: 2, placeholder: 'Optional', value: incomeForm.notes, onChange: ev => setIncomeForm({ ...incomeForm, notes: ev.target.value }) })
+          ),
+          e('div', { className: 'lg-form-actions' },
+            e('button', { type: 'button', className: 'lg-btn lg-btn-ghost', onClick: closeIncomeForm }, 'Cancel'),
+            e('button', { type: 'submit', className: 'lg-btn lg-btn-primary' }, editingIncomeId ? 'Save changes' : 'Add income')
+          )
+        ),
+
+        incomeCatList.length > 0 && e('div', null,
+          e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, viewMode === 'yearly' ? 'By source (yearly equivalent)' : 'By source (monthly equivalent)')),
+          e('div', { className: 'lg-cats' },
+            incomeCatList.map(([cat, total]) =>
+              e('div', { className: 'lg-cat-bar-row', key: cat },
+                e('div', { className: 'lg-cat-label', style: { color: incomeCatColor(cat).fg, fontWeight: 600 } }, cat),
+                e('div', { className: 'lg-cat-track' }, e('div', { className: 'lg-cat-fill', style: { width: (total / maxIncomeCat * 100) + '%', background: incomeCatColor(cat).fg } })),
+                e('div', { className: 'lg-cat-amount' }, fmtMoney(total))
+              )
+            )
+          )
+        ),
+
+        e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, 'All income')),
+
+        sortedIncome.length === 0
+          ? e('div', { className: 'lg-empty' },
+              e('strong', null, 'No income sources yet'),
+              'Add your salary, freelance income, or other earnings to see your full budget picture.'
+            )
+          : e('div', { className: 'lg-list' },
+              sortedIncome.map(it =>
+                e('div', { className: 'lg-row', key: it.id, style: { borderLeftColor: 'var(--sage)' } },
+                  e('div', { className: 'lg-row-main' },
+                    e('div', { className: 'lg-row-name' }, it.name),
+                    e('div', { className: 'lg-row-meta' },
+                      e('span', { className: 'lg-tag', style: { background: incomeCatColor(it.category).bg, color: incomeCatColor(it.category).fg } }, it.category),
+                      e('span', null, freqMeta(it.frequency).label),
+                      it.paymentMethod && e('span', null, it.paymentMethod)
+                    ),
+                    it.notes && e('div', { className: 'lg-row-meta', style: { marginTop: 4, fontStyle: 'italic' } }, it.notes)
+                  ),
+                  e('div', { className: 'lg-row-amount', style: { color: 'var(--sage)' } }, fmtMoney(it.amount)),
+                  e('div', { className: 'lg-row-actions' },
+                    e('button', { className: 'lg-icon-btn', title: 'Edit', onClick: () => openEditIncome(it) }, '✎'),
+                    e('button', { className: 'lg-icon-btn', title: 'Delete', onClick: () => removeIncome(it.id) }, '✕')
+                  )
+                )
+              )
+            )
+
+      ), // end income tab fragment
 
       e('div', { className: 'lg-footer-note' },
         hasClaudeStorage
