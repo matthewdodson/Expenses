@@ -519,7 +519,7 @@
     }
 
     function emptySuperForm() {
-      return { name: '', value: '', category: SUPER_CATEGORIES[0], shareCode: '', notes: '' };
+      return { name: '', value: '', category: SUPER_CATEGORIES[0], mortgage: '', shareCode: '', notes: '' };
     }
 
     React.useEffect(() => {
@@ -573,6 +573,14 @@
         setLoaded(true);
       })();
     }, []);
+
+    const autoRefreshedPricesRef = React.useRef(false);
+    React.useEffect(() => {
+      if (!loaded || autoRefreshedPricesRef.current) return;
+      autoRefreshedPricesRef.current = true;
+      assetItems.filter(it => it.shareCode).forEach(it => refreshAssetRowPrice(it));
+      superItems.filter(it => it.shareCode).forEach(it => refreshSuperRowPrice(it));
+    }, [loaded]);
 
     async function persistIncome(next) {
       setIncomeItems(next);
@@ -707,7 +715,10 @@
       setShowSuperForm(true);
     }
     function openEditSuper(item) {
-      setSuperForm({ name: item.name, value: String(item.value), category: item.category, shareCode: item.shareCode || '', notes: item.notes || '' });
+      setSuperForm({
+        name: item.name, value: String(item.value), category: item.category,
+        mortgage: item.mortgage ? String(item.mortgage) : '', shareCode: item.shareCode || '', notes: item.notes || ''
+      });
       setEditingSuperId(item.id);
       setSuperErr('');
       setSuperPriceStatus(item.currentPrice ? 'success' : 'idle');
@@ -736,19 +747,21 @@
     function submitSuper(ev) {
       ev.preventDefault();
       const val = parseFloat(superForm.value);
+      const mortgageVal = superForm.mortgage.trim() === '' ? 0 : parseFloat(superForm.mortgage);
       if (!superForm.name.trim()) { setSuperErr('Give it a name.'); return; }
       if (isNaN(val) || val < 0) { setSuperErr('Value must be a positive number.'); return; }
+      if (isNaN(mortgageVal) || mortgageVal < 0) { setSuperErr('Mortgage must be zero or a positive number.'); return; }
       const shareCode = SHARE_CATEGORY_NAMES.includes(superForm.category) ? superForm.shareCode.trim().toUpperCase() : '';
       const priceFields = shareCode && superPreviewPrice
         ? { shareCode, currentPrice: superPreviewPrice, priceUpdated: new Date().toISOString() }
         : { shareCode, currentPrice: shareCode ? null : undefined, priceUpdated: shareCode ? null : undefined };
       if (editingSuperId) {
         const next = superItems.map(it => it.id === editingSuperId ? {
-          ...it, name: superForm.name.trim(), value: val, category: superForm.category, notes: superForm.notes.trim(), ...priceFields
+          ...it, name: superForm.name.trim(), value: val, category: superForm.category, mortgage: mortgageVal, notes: superForm.notes.trim(), ...priceFields
         } : it);
         persistSuper(next);
       } else {
-        persistSuper([...superItems, { id: uid(), name: superForm.name.trim(), value: val, category: superForm.category, notes: superForm.notes.trim(), ...priceFields }]);
+        persistSuper([...superItems, { id: uid(), name: superForm.name.trim(), value: val, category: superForm.category, mortgage: mortgageVal, notes: superForm.notes.trim(), ...priceFields }]);
       }
       closeSuperForm();
     }
@@ -983,11 +996,13 @@
     const maxAssetCat = assetCatList.length ? Math.max(...assetCatList.map(c => Math.abs(c[1])), 1) : 1;
     const sortedAssets = [...assetItems].sort((a, b) => b.value - a.value);
 
-    const superTotal = superItems.reduce((sum, it) => sum + it.value, 0);
+    const superGrossTotal = superItems.reduce((sum, it) => sum + it.value, 0);
+    const superMortgageTotal = superItems.reduce((sum, it) => sum + (it.mortgage || 0), 0);
+    const superTotal = superGrossTotal - superMortgageTotal;
     const superCatTotals = {};
-    superItems.forEach(it => { superCatTotals[it.category] = (superCatTotals[it.category] || 0) + it.value; });
+    superItems.forEach(it => { superCatTotals[it.category] = (superCatTotals[it.category] || 0) + (it.value - (it.mortgage || 0)); });
     const superCatList = Object.entries(superCatTotals).sort((a, b) => b[1] - a[1]);
-    const maxSuperCat = superCatList.length ? superCatList[0][1] : 1;
+    const maxSuperCat = superCatList.length ? Math.max(...superCatList.map(c => Math.abs(c[1])), 1) : 1;
     const sortedSuper = [...superItems].sort((a, b) => b.value - a.value);
 
     const netWorth = assetTotal + superTotal;
@@ -1045,7 +1060,8 @@
         ),
         e('div', { className: 'lg-stat' },
           e('div', { className: 'lg-stat-label' }, 'Total super'),
-          e('div', { className: 'lg-stat-value teal' }, fmtMoney(superTotal))
+          e('div', { className: 'lg-stat-value teal' }, fmtMoney(superTotal)),
+          superMortgageTotal > 0 && e('div', { className: 'lg-sub', style: { marginTop: 4 } }, `${fmtMoney(superGrossTotal)} value − ${fmtMoney(superMortgageTotal)} mortgage`)
         ),
         e('div', { className: 'lg-stat' },
           e('div', { className: 'lg-stat-label' }, 'Net worth'),
@@ -1546,6 +1562,10 @@
               SUPER_CATEGORIES.map(c => e('option', { key: c, value: c }, c))
             )
           ),
+          superForm.category === 'Property' && e('div', { className: 'lg-field' },
+            e('label', null, 'Mortgage / loan owing (AUD)'),
+            e('input', { type: 'number', step: '0.01', min: '0', placeholder: '0.00 (leave blank if none)', value: superForm.mortgage, onChange: ev => setSuperForm({ ...superForm, mortgage: ev.target.value }) })
+          ),
           SHARE_CATEGORY_NAMES.includes(superForm.category) && e('div', { className: 'lg-field full' },
             e('label', null, 'Share code (e.g. HACK.AX)'),
             e('div', { style: { display: 'flex', gap: 8 } },
@@ -1574,13 +1594,13 @@
         ),
 
         superCatList.length > 0 && e('div', null,
-          e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, 'By category')),
+          e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, 'Net of mortgage, by category')),
           e('div', { className: 'lg-cats' },
             superCatList.map(([cat, total]) =>
               e('div', { className: 'lg-cat-bar-row', key: cat },
                 e('div', { className: 'lg-cat-label', style: { color: superCatColor(cat).fg, fontWeight: 600 } }, cat),
-                e('div', { className: 'lg-cat-track' }, e('div', { className: 'lg-cat-fill', style: { width: (total / maxSuperCat * 100) + '%', background: superCatColor(cat).fg } })),
-                e('div', { className: 'lg-cat-amount' }, fmtMoney(total))
+                e('div', { className: 'lg-cat-track' }, e('div', { className: 'lg-cat-fill', style: { width: Math.max(0, total / maxSuperCat * 100) + '%', background: total < 0 ? 'var(--rust)' : superCatColor(cat).fg } })),
+                e('div', { className: 'lg-cat-amount', style: { color: total < 0 ? 'var(--rust)' : 'inherit' } }, fmtMoney(total))
               )
             )
           )
@@ -1594,12 +1614,16 @@
               'Add your super fund\u2019s investment allocation to see the full breakdown.'
             )
           : e('div', { className: 'lg-list' },
-              sortedSuper.map(it =>
-                e('div', { className: 'lg-row', key: it.id, style: { borderLeftColor: superCatColor(it.category).fg } },
+              sortedSuper.map(it => {
+                const hasSuperMortgage = it.mortgage > 0;
+                const superEquity = it.value - (it.mortgage || 0);
+                return e('div', { className: 'lg-row', key: it.id, style: { borderLeftColor: superCatColor(it.category).fg } },
                   e('div', { className: 'lg-row-main' },
                     e('div', { className: 'lg-row-name' }, it.name),
                     e('div', { className: 'lg-row-meta' },
-                      e('span', { className: 'lg-tag', style: { background: superCatColor(it.category).bg, color: superCatColor(it.category).fg } }, it.category)
+                      e('span', { className: 'lg-tag', style: { background: superCatColor(it.category).bg, color: superCatColor(it.category).fg } }, it.category),
+                      hasSuperMortgage && e('span', null, `Value: ${fmtMoney(it.value)}`),
+                      hasSuperMortgage && e('span', { style: { color: 'var(--rust)' } }, `Mortgage: ${fmtMoney(it.mortgage)}`)
                     ),
                     it.shareCode && e('div', { className: 'lg-row-meta', style: { marginTop: 4 } },
                       e('span', { className: 'lg-tag', style: { background: 'var(--teal-dim)', color: 'var(--teal)' } }, it.shareCode),
@@ -1615,13 +1639,16 @@
                     ),
                     it.notes && e('div', { className: 'lg-row-meta', style: { marginTop: 4, fontStyle: 'italic' } }, it.notes)
                   ),
-                  e('div', { className: 'lg-row-amount' }, fmtMoney(it.value)),
+                  e('div', { className: 'lg-row-amount', style: { color: superEquity < 0 ? 'var(--rust)' : 'inherit' } },
+                    fmtMoney(superEquity),
+                    hasSuperMortgage && e('div', { style: { fontSize: 10.5, color: 'var(--ink-soft)', fontWeight: 400, textAlign: 'right' } }, 'net equity')
+                  ),
                   e('div', { className: 'lg-row-actions' },
                     e('button', { className: 'lg-icon-btn', title: 'Edit', onClick: () => openEditSuper(it) }, '✎'),
                     e('button', { className: 'lg-icon-btn', title: 'Delete', onClick: () => removeSuper(it.id) }, '✕')
                   )
-                )
-              )
+                );
+              })
             )
 
       ), // end super tab fragment
