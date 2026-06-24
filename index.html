@@ -331,23 +331,38 @@
   async function fetchSharePrice(rawCode) {
     if (!rawCode || !rawCode.trim()) return null;
     const code = rawCode.trim().toUpperCase();
-    const stooqCode = code.endsWith('.AX') ? code.slice(0, -3) + '.AU' : code;
-    try {
-      const res = await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(stooqCode)}&f=sd2t2ohlcv&h&e=csv`);
-      if (!res.ok) return null;
-      const text = await res.text();
-      const lines = text.trim().split('\n');
-      if (lines.length < 2) return null;
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-      const values = lines[1].split(',');
-      const closeIdx = headers.indexOf('close');
-      if (closeIdx === -1) return null;
-      const price = parseFloat(values[closeIdx]);
-      if (isNaN(price) || price <= 0) return null;
-      return price;
-    } catch (_) {
-      return null;
+    const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}`;
+
+    async function tryParseYahoo(jsonText) {
+      try {
+        const data = JSON.parse(jsonText);
+        const price = data && data.chart && data.chart.result && data.chart.result[0] && data.chart.result[0].meta
+          ? data.chart.result[0].meta.regularMarketPrice
+          : null;
+        if (typeof price !== 'number' || isNaN(price) || price <= 0) return null;
+        return price;
+      } catch (_) { return null; }
     }
+
+    // Primary: allorigins proxy (adds CORS headers Yahoo itself doesn't send)
+    try {
+      const res = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(yahooUrl)}`);
+      if (res.ok) {
+        const price = await tryParseYahoo(await res.text());
+        if (price !== null) return price;
+      }
+    } catch (_) { /* fall through to backup proxy */ }
+
+    // Backup: corsproxy.io
+    try {
+      const res2 = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(yahooUrl)}`);
+      if (res2.ok) {
+        const price2 = await tryParseYahoo(await res2.text());
+        if (price2 !== null) return price2;
+      }
+    } catch (_) { /* both proxies failed */ }
+
+    return null;
   }
 
   const SUPER_CATEGORIES = ['Property', 'Cash', 'Share investments', 'Trilogy Monthly Income Trust', 'Other'];
