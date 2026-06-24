@@ -316,14 +316,39 @@
   };
   function incomeCatColor(cat) { return INCOME_CATEGORY_COLORS[cat] || DEFAULT_CATEGORY_COLOR; }
 
-  const ASSET_CATEGORIES = ['Property', 'Investment Property', 'Car', 'Other'];
+  const ASSET_CATEGORIES = ['Property', 'Investment Property', 'Shares', 'Car', 'Other'];
   const ASSET_CATEGORY_COLORS = {
     'Property': { fg: '#2F6E62', bg: '#DCE7E3' },
     'Investment Property': { fg: '#2F5A8A', bg: '#DCE5F0' },
+    'Shares': { fg: '#A6831F', bg: '#F3ECD6' },
     'Car': { fg: '#C68A2E', bg: '#F3E6CC' },
     'Other': { fg: '#5B6168', bg: '#E4E2DC' },
   };
   function assetCatColor(cat) { return ASSET_CATEGORY_COLORS[cat] || DEFAULT_CATEGORY_COLOR; }
+
+  const SHARE_CATEGORY_NAMES = ['Shares', 'Share investments'];
+
+  async function fetchSharePrice(rawCode) {
+    if (!rawCode || !rawCode.trim()) return null;
+    const code = rawCode.trim().toUpperCase();
+    const stooqCode = code.endsWith('.AX') ? code.slice(0, -3) + '.AU' : code;
+    try {
+      const res = await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(stooqCode)}&f=sd2t2ohlcv&h&e=csv`);
+      if (!res.ok) return null;
+      const text = await res.text();
+      const lines = text.trim().split('\n');
+      if (lines.length < 2) return null;
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+      const values = lines[1].split(',');
+      const closeIdx = headers.indexOf('close');
+      if (closeIdx === -1) return null;
+      const price = parseFloat(values[closeIdx]);
+      if (isNaN(price) || price <= 0) return null;
+      return price;
+    } catch (_) {
+      return null;
+    }
+  }
 
   const SUPER_CATEGORIES = ['Property', 'Cash', 'Share investments', 'Trilogy Monthly Income Trust', 'Other'];
   const SUPER_CATEGORY_COLORS = {
@@ -449,12 +474,18 @@
     const [editingAssetId, setEditingAssetId] = React.useState(null);
     const [assetForm, setAssetForm] = React.useState(emptyAssetForm());
     const [assetErr, setAssetErr] = React.useState('');
+    const [assetPriceStatus, setAssetPriceStatus] = React.useState('idle');
+    const [assetPreviewPrice, setAssetPreviewPrice] = React.useState(null);
+    const [assetRowPriceStatus, setAssetRowPriceStatus] = React.useState({});
 
     const [superItems, setSuperItems] = React.useState([]);
     const [showSuperForm, setShowSuperForm] = React.useState(false);
     const [editingSuperId, setEditingSuperId] = React.useState(null);
     const [superForm, setSuperForm] = React.useState(emptySuperForm());
     const [superErr, setSuperErr] = React.useState('');
+    const [superPriceStatus, setSuperPriceStatus] = React.useState('idle');
+    const [superPreviewPrice, setSuperPreviewPrice] = React.useState(null);
+    const [superRowPriceStatus, setSuperRowPriceStatus] = React.useState({});
 
     function emptyForm() {
       return {
@@ -469,11 +500,11 @@
     }
 
     function emptyAssetForm() {
-      return { name: '', value: '', category: ASSET_CATEGORIES[0], mortgage: '', offset: '', notes: '' };
+      return { name: '', value: '', category: ASSET_CATEGORIES[0], mortgage: '', offset: '', shareCode: '', notes: '' };
     }
 
     function emptySuperForm() {
-      return { name: '', value: '', category: SUPER_CATEGORIES[0], notes: '' };
+      return { name: '', value: '', category: SUPER_CATEGORIES[0], shareCode: '', notes: '' };
     }
 
     React.useEffect(() => {
@@ -584,19 +615,41 @@
       setAssetForm(emptyAssetForm());
       setEditingAssetId(null);
       setAssetErr('');
+      setAssetPriceStatus('idle');
+      setAssetPreviewPrice(null);
       setShowAssetForm(true);
     }
     function openEditAsset(item) {
       setAssetForm({
         name: item.name, value: String(item.value), category: item.category,
         mortgage: item.mortgage ? String(item.mortgage) : '', offset: item.offset ? String(item.offset) : '',
-        notes: item.notes || ''
+        shareCode: item.shareCode || '', notes: item.notes || ''
       });
       setEditingAssetId(item.id);
       setAssetErr('');
+      setAssetPriceStatus(item.currentPrice ? 'success' : 'idle');
+      setAssetPreviewPrice(item.currentPrice || null);
       setShowAssetForm(true);
     }
     function closeAssetForm() { setShowAssetForm(false); setEditingAssetId(null); }
+
+    async function lookupAssetPrice() {
+      setAssetPriceStatus('loading');
+      const price = await fetchSharePrice(assetForm.shareCode);
+      if (price === null) { setAssetPriceStatus('error'); setAssetPreviewPrice(null); return; }
+      setAssetPreviewPrice(price);
+      setAssetPriceStatus('success');
+    }
+
+    async function refreshAssetRowPrice(item) {
+      setAssetRowPriceStatus(s => ({ ...s, [item.id]: 'loading' }));
+      const price = await fetchSharePrice(item.shareCode);
+      if (price === null) { setAssetRowPriceStatus(s => ({ ...s, [item.id]: 'error' })); return; }
+      const next = assetItems.map(it => it.id === item.id ? { ...it, currentPrice: price, priceUpdated: new Date().toISOString() } : it);
+      await persistAssets(next);
+      setAssetRowPriceStatus(s => ({ ...s, [item.id]: 'success' }));
+    }
+
     function submitAsset(ev) {
       ev.preventDefault();
       const val = parseFloat(assetForm.value);
@@ -606,16 +659,20 @@
       if (isNaN(val) || val < 0) { setAssetErr('Value must be a positive number.'); return; }
       if (isNaN(mortgageVal) || mortgageVal < 0) { setAssetErr('Mortgage must be zero or a positive number.'); return; }
       if (isNaN(offsetVal) || offsetVal < 0) { setAssetErr('Offset must be zero or a positive number.'); return; }
+      const shareCode = SHARE_CATEGORY_NAMES.includes(assetForm.category) ? assetForm.shareCode.trim().toUpperCase() : '';
+      const priceFields = shareCode && assetPreviewPrice
+        ? { shareCode, currentPrice: assetPreviewPrice, priceUpdated: new Date().toISOString() }
+        : { shareCode, currentPrice: shareCode ? null : undefined, priceUpdated: shareCode ? null : undefined };
       if (editingAssetId) {
         const next = assetItems.map(it => it.id === editingAssetId ? {
           ...it, name: assetForm.name.trim(), value: val, category: assetForm.category,
-          mortgage: mortgageVal, offset: offsetVal, notes: assetForm.notes.trim()
+          mortgage: mortgageVal, offset: offsetVal, notes: assetForm.notes.trim(), ...priceFields
         } : it);
         persistAssets(next);
       } else {
         persistAssets([...assetItems, {
           id: uid(), name: assetForm.name.trim(), value: val, category: assetForm.category,
-          mortgage: mortgageVal, offset: offsetVal, notes: assetForm.notes.trim()
+          mortgage: mortgageVal, offset: offsetVal, notes: assetForm.notes.trim(), ...priceFields
         }]);
       }
       closeAssetForm();
@@ -630,27 +687,53 @@
       setSuperForm(emptySuperForm());
       setEditingSuperId(null);
       setSuperErr('');
+      setSuperPriceStatus('idle');
+      setSuperPreviewPrice(null);
       setShowSuperForm(true);
     }
     function openEditSuper(item) {
-      setSuperForm({ name: item.name, value: String(item.value), category: item.category, notes: item.notes || '' });
+      setSuperForm({ name: item.name, value: String(item.value), category: item.category, shareCode: item.shareCode || '', notes: item.notes || '' });
       setEditingSuperId(item.id);
       setSuperErr('');
+      setSuperPriceStatus(item.currentPrice ? 'success' : 'idle');
+      setSuperPreviewPrice(item.currentPrice || null);
       setShowSuperForm(true);
     }
     function closeSuperForm() { setShowSuperForm(false); setEditingSuperId(null); }
+
+    async function lookupSuperPrice() {
+      setSuperPriceStatus('loading');
+      const price = await fetchSharePrice(superForm.shareCode);
+      if (price === null) { setSuperPriceStatus('error'); setSuperPreviewPrice(null); return; }
+      setSuperPreviewPrice(price);
+      setSuperPriceStatus('success');
+    }
+
+    async function refreshSuperRowPrice(item) {
+      setSuperRowPriceStatus(s => ({ ...s, [item.id]: 'loading' }));
+      const price = await fetchSharePrice(item.shareCode);
+      if (price === null) { setSuperRowPriceStatus(s => ({ ...s, [item.id]: 'error' })); return; }
+      const next = superItems.map(it => it.id === item.id ? { ...it, currentPrice: price, priceUpdated: new Date().toISOString() } : it);
+      await persistSuper(next);
+      setSuperRowPriceStatus(s => ({ ...s, [item.id]: 'success' }));
+    }
+
     function submitSuper(ev) {
       ev.preventDefault();
       const val = parseFloat(superForm.value);
       if (!superForm.name.trim()) { setSuperErr('Give it a name.'); return; }
       if (isNaN(val) || val < 0) { setSuperErr('Value must be a positive number.'); return; }
+      const shareCode = SHARE_CATEGORY_NAMES.includes(superForm.category) ? superForm.shareCode.trim().toUpperCase() : '';
+      const priceFields = shareCode && superPreviewPrice
+        ? { shareCode, currentPrice: superPreviewPrice, priceUpdated: new Date().toISOString() }
+        : { shareCode, currentPrice: shareCode ? null : undefined, priceUpdated: shareCode ? null : undefined };
       if (editingSuperId) {
         const next = superItems.map(it => it.id === editingSuperId ? {
-          ...it, name: superForm.name.trim(), value: val, category: superForm.category, notes: superForm.notes.trim()
+          ...it, name: superForm.name.trim(), value: val, category: superForm.category, notes: superForm.notes.trim(), ...priceFields
         } : it);
         persistSuper(next);
       } else {
-        persistSuper([...superItems, { id: uid(), name: superForm.name.trim(), value: val, category: superForm.category, notes: superForm.notes.trim() }]);
+        persistSuper([...superItems, { id: uid(), name: superForm.name.trim(), value: val, category: superForm.category, notes: superForm.notes.trim(), ...priceFields }]);
       }
       closeSuperForm();
     }
@@ -1341,6 +1424,23 @@
             e('label', null, 'Offset account balance (AUD)'),
             e('input', { type: 'number', step: '0.01', min: '0', placeholder: '0.00 (leave blank if none)', value: assetForm.offset, onChange: ev => setAssetForm({ ...assetForm, offset: ev.target.value }) })
           ),
+          SHARE_CATEGORY_NAMES.includes(assetForm.category) && e('div', { className: 'lg-field full' },
+            e('label', null, 'Share code (e.g. HACK.AX)'),
+            e('div', { style: { display: 'flex', gap: 8 } },
+              e('input', {
+                type: 'text', placeholder: 'e.g. HACK.AX', style: { flex: 1 },
+                value: assetForm.shareCode,
+                onChange: ev => { setAssetForm({ ...assetForm, shareCode: ev.target.value }); setAssetPriceStatus('idle'); setAssetPreviewPrice(null); }
+              }),
+              e('button', {
+                type: 'button', className: 'lg-btn lg-btn-ghost', style: { whiteSpace: 'nowrap' },
+                disabled: assetPriceStatus === 'loading' || !assetForm.shareCode.trim(),
+                onClick: lookupAssetPrice
+              }, assetPriceStatus === 'loading' ? 'Looking up…' : '🔍 Get price')
+            ),
+            assetPriceStatus === 'success' && assetPreviewPrice && e('div', { style: { fontSize: 12.5, color: 'var(--sage)', marginTop: 4 } }, `Current price: ${fmtMoney(assetPreviewPrice)}`),
+            assetPriceStatus === 'error' && e('div', { style: { fontSize: 12.5, color: 'var(--rust)', marginTop: 4 } }, 'Couldn\u2019t find a price for that code — double check it and try again.')
+          ),
           e('div', { className: 'lg-field full' },
             e('label', null, 'Notes'),
             e('textarea', { rows: 2, placeholder: 'Optional', value: assetForm.notes, onChange: ev => setAssetForm({ ...assetForm, notes: ev.target.value }) })
@@ -1385,6 +1485,18 @@
                       hasMortgage && e('span', { style: { color: 'var(--rust)' } }, `Mortgage: ${fmtMoney(it.mortgage)}`),
                       hasOffset && e('span', { style: { color: 'var(--sage)' } }, `Offset: ${fmtMoney(it.offset)}`)
                     ),
+                    it.shareCode && e('div', { className: 'lg-row-meta', style: { marginTop: 4 } },
+                      e('span', { className: 'lg-tag', style: { background: 'var(--teal-dim)', color: 'var(--teal)' } }, it.shareCode),
+                      it.currentPrice
+                        ? e('span', null, `${fmtMoney(it.currentPrice)} as of ${new Date(it.priceUpdated).toLocaleDateString('en-AU')}`)
+                        : e('span', { style: { color: 'var(--ink-soft)' } }, 'No price yet'),
+                      e('button', {
+                        className: 'lg-sync-btn ' + (assetRowPriceStatus[it.id] || ''),
+                        style: { padding: '2px 8px', fontSize: 10.5 },
+                        disabled: assetRowPriceStatus[it.id] === 'loading',
+                        onClick: () => refreshAssetRowPrice(it)
+                      }, assetRowPriceStatus[it.id] === 'loading' ? '…' : assetRowPriceStatus[it.id] === 'error' ? '⚠ Retry' : '🔄')
+                    ),
                     it.notes && e('div', { className: 'lg-row-meta', style: { marginTop: 4, fontStyle: 'italic' } }, it.notes)
                   ),
                   e('div', { className: 'lg-row-amount', style: { color: equity < 0 ? 'var(--rust)' : 'inherit' } },
@@ -1418,6 +1530,23 @@
             e('select', { value: superForm.category, onChange: ev => setSuperForm({ ...superForm, category: ev.target.value }) },
               SUPER_CATEGORIES.map(c => e('option', { key: c, value: c }, c))
             )
+          ),
+          SHARE_CATEGORY_NAMES.includes(superForm.category) && e('div', { className: 'lg-field full' },
+            e('label', null, 'Share code (e.g. HACK.AX)'),
+            e('div', { style: { display: 'flex', gap: 8 } },
+              e('input', {
+                type: 'text', placeholder: 'e.g. HACK.AX', style: { flex: 1 },
+                value: superForm.shareCode,
+                onChange: ev => { setSuperForm({ ...superForm, shareCode: ev.target.value }); setSuperPriceStatus('idle'); setSuperPreviewPrice(null); }
+              }),
+              e('button', {
+                type: 'button', className: 'lg-btn lg-btn-ghost', style: { whiteSpace: 'nowrap' },
+                disabled: superPriceStatus === 'loading' || !superForm.shareCode.trim(),
+                onClick: lookupSuperPrice
+              }, superPriceStatus === 'loading' ? 'Looking up…' : '🔍 Get price')
+            ),
+            superPriceStatus === 'success' && superPreviewPrice && e('div', { style: { fontSize: 12.5, color: 'var(--sage)', marginTop: 4 } }, `Current price: ${fmtMoney(superPreviewPrice)}`),
+            superPriceStatus === 'error' && e('div', { style: { fontSize: 12.5, color: 'var(--rust)', marginTop: 4 } }, 'Couldn\u2019t find a price for that code — double check it and try again.')
           ),
           e('div', { className: 'lg-field full' },
             e('label', null, 'Notes'),
@@ -1456,6 +1585,18 @@
                     e('div', { className: 'lg-row-name' }, it.name),
                     e('div', { className: 'lg-row-meta' },
                       e('span', { className: 'lg-tag', style: { background: superCatColor(it.category).bg, color: superCatColor(it.category).fg } }, it.category)
+                    ),
+                    it.shareCode && e('div', { className: 'lg-row-meta', style: { marginTop: 4 } },
+                      e('span', { className: 'lg-tag', style: { background: 'var(--teal-dim)', color: 'var(--teal)' } }, it.shareCode),
+                      it.currentPrice
+                        ? e('span', null, `${fmtMoney(it.currentPrice)} as of ${new Date(it.priceUpdated).toLocaleDateString('en-AU')}`)
+                        : e('span', { style: { color: 'var(--ink-soft)' } }, 'No price yet'),
+                      e('button', {
+                        className: 'lg-sync-btn ' + (superRowPriceStatus[it.id] || ''),
+                        style: { padding: '2px 8px', fontSize: 10.5 },
+                        disabled: superRowPriceStatus[it.id] === 'loading',
+                        onClick: () => refreshSuperRowPrice(it)
+                      }, superRowPriceStatus[it.id] === 'loading' ? '…' : superRowPriceStatus[it.id] === 'error' ? '⚠ Retry' : '🔄')
                     ),
                     it.notes && e('div', { className: 'lg-row-meta', style: { marginTop: 4, fontStyle: 'italic' } }, it.notes)
                   ),
