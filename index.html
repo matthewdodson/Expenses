@@ -469,7 +469,7 @@
     }
 
     function emptyAssetForm() {
-      return { name: '', value: '', category: ASSET_CATEGORIES[0], mortgage: '', notes: '' };
+      return { name: '', value: '', category: ASSET_CATEGORIES[0], mortgage: '', offset: '', notes: '' };
     }
 
     function emptySuperForm() {
@@ -587,7 +587,11 @@
       setShowAssetForm(true);
     }
     function openEditAsset(item) {
-      setAssetForm({ name: item.name, value: String(item.value), category: item.category, mortgage: item.mortgage ? String(item.mortgage) : '', notes: item.notes || '' });
+      setAssetForm({
+        name: item.name, value: String(item.value), category: item.category,
+        mortgage: item.mortgage ? String(item.mortgage) : '', offset: item.offset ? String(item.offset) : '',
+        notes: item.notes || ''
+      });
       setEditingAssetId(item.id);
       setAssetErr('');
       setShowAssetForm(true);
@@ -597,16 +601,22 @@
       ev.preventDefault();
       const val = parseFloat(assetForm.value);
       const mortgageVal = assetForm.mortgage.trim() === '' ? 0 : parseFloat(assetForm.mortgage);
+      const offsetVal = assetForm.offset.trim() === '' ? 0 : parseFloat(assetForm.offset);
       if (!assetForm.name.trim()) { setAssetErr('Give it a name.'); return; }
       if (isNaN(val) || val < 0) { setAssetErr('Value must be a positive number.'); return; }
       if (isNaN(mortgageVal) || mortgageVal < 0) { setAssetErr('Mortgage must be zero or a positive number.'); return; }
+      if (isNaN(offsetVal) || offsetVal < 0) { setAssetErr('Offset must be zero or a positive number.'); return; }
       if (editingAssetId) {
         const next = assetItems.map(it => it.id === editingAssetId ? {
-          ...it, name: assetForm.name.trim(), value: val, category: assetForm.category, mortgage: mortgageVal, notes: assetForm.notes.trim()
+          ...it, name: assetForm.name.trim(), value: val, category: assetForm.category,
+          mortgage: mortgageVal, offset: offsetVal, notes: assetForm.notes.trim()
         } : it);
         persistAssets(next);
       } else {
-        persistAssets([...assetItems, { id: uid(), name: assetForm.name.trim(), value: val, category: assetForm.category, mortgage: mortgageVal, notes: assetForm.notes.trim() }]);
+        persistAssets([...assetItems, {
+          id: uid(), name: assetForm.name.trim(), value: val, category: assetForm.category,
+          mortgage: mortgageVal, offset: offsetVal, notes: assetForm.notes.trim()
+        }]);
       }
       closeAssetForm();
     }
@@ -867,9 +877,10 @@
 
     const assetGrossTotal = assetItems.reduce((sum, it) => sum + it.value, 0);
     const assetMortgageTotal = assetItems.reduce((sum, it) => sum + (it.mortgage || 0), 0);
-    const assetTotal = assetGrossTotal - assetMortgageTotal;
+    const assetOffsetTotal = assetItems.reduce((sum, it) => sum + (it.offset || 0), 0);
+    const assetTotal = assetGrossTotal - assetMortgageTotal + assetOffsetTotal;
     const assetCatTotals = {};
-    assetItems.forEach(it => { assetCatTotals[it.category] = (assetCatTotals[it.category] || 0) + (it.value - (it.mortgage || 0)); });
+    assetItems.forEach(it => { assetCatTotals[it.category] = (assetCatTotals[it.category] || 0) + (it.value - (it.mortgage || 0) + (it.offset || 0)); });
     const assetCatList = Object.entries(assetCatTotals).sort((a, b) => b[1] - a[1]);
     const maxAssetCat = assetCatList.length ? Math.max(...assetCatList.map(c => Math.abs(c[1])), 1) : 1;
     const sortedAssets = [...assetItems].sort((a, b) => b.value - a.value);
@@ -931,7 +942,8 @@
         e('div', { className: 'lg-stat' },
           e('div', { className: 'lg-stat-label' }, 'Total assets (net of mortgage)'),
           e('div', { className: 'lg-stat-value teal' }, fmtMoney(assetTotal)),
-          assetMortgageTotal > 0 && e('div', { className: 'lg-sub', style: { marginTop: 4 } }, `${fmtMoney(assetGrossTotal)} value − ${fmtMoney(assetMortgageTotal)} mortgage`)
+          (assetMortgageTotal > 0 || assetOffsetTotal > 0) && e('div', { className: 'lg-sub', style: { marginTop: 4 } },
+            `${fmtMoney(assetGrossTotal)} value − ${fmtMoney(assetMortgageTotal)} mortgage` + (assetOffsetTotal > 0 ? ` + ${fmtMoney(assetOffsetTotal)} offset` : ''))
         ),
         e('div', { className: 'lg-stat' },
           e('div', { className: 'lg-stat-label' }, 'Total super'),
@@ -1325,6 +1337,10 @@
             e('label', null, 'Mortgage / loan owing (AUD)'),
             e('input', { type: 'number', step: '0.01', min: '0', placeholder: '0.00 (leave blank if none)', value: assetForm.mortgage, onChange: ev => setAssetForm({ ...assetForm, mortgage: ev.target.value }) })
           ),
+          e('div', { className: 'lg-field' },
+            e('label', null, 'Offset account balance (AUD)'),
+            e('input', { type: 'number', step: '0.01', min: '0', placeholder: '0.00 (leave blank if none)', value: assetForm.offset, onChange: ev => setAssetForm({ ...assetForm, offset: ev.target.value }) })
+          ),
           e('div', { className: 'lg-field full' },
             e('label', null, 'Notes'),
             e('textarea', { rows: 2, placeholder: 'Optional', value: assetForm.notes, onChange: ev => setAssetForm({ ...assetForm, notes: ev.target.value }) })
@@ -1358,20 +1374,22 @@
           : e('div', { className: 'lg-list' },
               sortedAssets.map(it => {
                 const hasMortgage = it.mortgage > 0;
-                const equity = it.value - (it.mortgage || 0);
+                const hasOffset = it.offset > 0;
+                const equity = it.value - (it.mortgage || 0) + (it.offset || 0);
                 return e('div', { className: 'lg-row', key: it.id, style: { borderLeftColor: assetCatColor(it.category).fg } },
                   e('div', { className: 'lg-row-main' },
                     e('div', { className: 'lg-row-name' }, it.name),
                     e('div', { className: 'lg-row-meta' },
                       e('span', { className: 'lg-tag', style: { background: assetCatColor(it.category).bg, color: assetCatColor(it.category).fg } }, it.category),
                       e('span', null, `Value: ${fmtMoney(it.value)}`),
-                      hasMortgage && e('span', { style: { color: 'var(--rust)' } }, `Mortgage: ${fmtMoney(it.mortgage)}`)
+                      hasMortgage && e('span', { style: { color: 'var(--rust)' } }, `Mortgage: ${fmtMoney(it.mortgage)}`),
+                      hasOffset && e('span', { style: { color: 'var(--sage)' } }, `Offset: ${fmtMoney(it.offset)}`)
                     ),
                     it.notes && e('div', { className: 'lg-row-meta', style: { marginTop: 4, fontStyle: 'italic' } }, it.notes)
                   ),
                   e('div', { className: 'lg-row-amount', style: { color: equity < 0 ? 'var(--rust)' : 'inherit' } },
                     fmtMoney(equity),
-                    hasMortgage && e('div', { style: { fontSize: 10.5, color: 'var(--ink-soft)', fontWeight: 400, textAlign: 'right' } }, 'net equity')
+                    (hasMortgage || hasOffset) && e('div', { style: { fontSize: 10.5, color: 'var(--ink-soft)', fontWeight: 400, textAlign: 'right' } }, 'net equity')
                   ),
                   e('div', { className: 'lg-row-actions' },
                     e('button', { className: 'lg-icon-btn', title: 'Edit', onClick: () => openEditAsset(it) }, '✎'),
