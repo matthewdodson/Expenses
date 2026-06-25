@@ -293,7 +293,7 @@
   const SUPER_STORAGE_KEY = 'super-v1';
   const EXCLUDED_CATS_KEY = 'excluded-categories-v1';
 
-  const CATEGORIES = ['Streaming', 'Utilities', 'Mortgage', 'Insurance', 'Subscriptions', 'Phone/Internet', 'Nonna', 'Other'];
+  const CATEGORIES = ['Streaming', 'Utilities', 'Mortgage', 'Insurance', 'Subscriptions', 'Phone/Internet', 'Nonna', 'Taxable donations', 'Other'];
 
   const CATEGORY_COLORS = {
     'Streaming': { fg: '#6B4FA0', bg: '#EDE6F5' },
@@ -303,6 +303,7 @@
     'Subscriptions': { fg: '#C68A2E', bg: '#F3E6CC' },
     'Phone/Internet': { fg: '#5C8A5C', bg: '#E1EAE0' },
     'Nonna': { fg: '#A8447A', bg: '#F2DCE9' },
+    'Taxable donations': { fg: '#3F7CA6', bg: '#DCEAF2' },
     'Other': { fg: '#5B6168', bg: '#E4E2DC' },
   };
   const DEFAULT_CATEGORY_COLOR = { fg: '#5B6168', bg: '#E4E2DC' };
@@ -473,6 +474,7 @@
     const fileInputRef = React.useRef(null);
     const [autoPayFilter, setAutoPayFilter] = React.useState('all');
     const [categoryFilter, setCategoryFilter] = React.useState('all');
+    const [sortBy, setSortBy] = React.useState('dueDate');
     const [paymentMethodFilter, setPaymentMethodFilter] = React.useState('all');
     const [viewMode, setViewMode] = React.useState('monthly');
     const [excludedCats, setExcludedCats] = React.useState([]);
@@ -971,6 +973,14 @@
     const maxCat = catList.length ? catList[0][1] : 1;
 
     const sorted = [...items].sort((a, b) => {
+      if (sortBy === 'category') {
+        const c = a.category.localeCompare(b.category);
+        if (c !== 0) return c;
+        const da = daysUntil(a.dueDate); const db = daysUntil(b.dueDate);
+        return (da === null ? 9999 : da) - (db === null ? 9999 : db);
+      }
+      if (sortBy === 'amount') return b.amount - a.amount;
+      if (sortBy === 'name') return a.name.localeCompare(b.name);
       const da = daysUntil(a.dueDate); const db = daysUntil(b.dueDate);
       return (da === null ? 9999 : da) - (db === null ? 9999 : db);
     });
@@ -1238,6 +1248,16 @@
       e('div', { className: 'lg-section-head' },
         e('div', { className: 'lg-section-title' }, 'All expenses'),
         e('div', { className: 'lg-toolbar' },
+          e('select', {
+            value: sortBy,
+            onChange: ev => setSortBy(ev.target.value),
+            style: { fontSize: 12, padding: '5px 8px', borderRadius: 7, border: '1px solid var(--line)', background: '#fff', color: 'var(--ink)' }
+          },
+            e('option', { value: 'dueDate' }, 'Sort: Due date'),
+            e('option', { value: 'category' }, 'Sort: Category'),
+            e('option', { value: 'amount' }, 'Sort: Amount (high–low)'),
+            e('option', { value: 'name' }, 'Sort: Name (A–Z)')
+          ),
           [['all', 'All'], ['auto', 'Auto-pay'], ['manual', 'Manual']].map(([val, label]) =>
             e('button', {
               key: val,
