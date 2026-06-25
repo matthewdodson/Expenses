@@ -291,6 +291,7 @@
   const INCOME_STORAGE_KEY = 'income-v1';
   const ASSET_STORAGE_KEY = 'assets-v1';
   const SUPER_STORAGE_KEY = 'super-v1';
+  const KIDS_STORAGE_KEY = 'kids-v1';
   const EXCLUDED_CATS_KEY = 'excluded-categories-v1';
 
   const CATEGORIES = ['Streaming', 'Utilities', 'Mortgage', 'Insurance', 'Subscriptions', 'Phone/Internet', 'Nonna', 'Taxable donations', 'Other'];
@@ -375,6 +376,15 @@
     'Other': { fg: '#5B6168', bg: '#E4E2DC' },
   };
   function superCatColor(cat) { return SUPER_CATEGORY_COLORS[cat] || DEFAULT_CATEGORY_COLOR; }
+
+  const KIDS_CATEGORIES = ['Savings', 'Term Deposit', 'Investment', 'Other'];
+  const KIDS_CATEGORY_COLORS = {
+    'Savings': { fg: '#5C8A5C', bg: '#E1EAE0' },
+    'Term Deposit': { fg: '#2F5A8A', bg: '#DCE5F0' },
+    'Investment': { fg: '#6B4FA0', bg: '#EDE6F5' },
+    'Other': { fg: '#5B6168', bg: '#E4E2DC' },
+  };
+  function kidsCatColor(cat) { return KIDS_CATEGORY_COLORS[cat] || DEFAULT_CATEGORY_COLOR; }
 
   const PAYMENT_METHODS = ['Visa 3046', 'PayPal', 'Acct 135', 'Acct 090'];
   const FREQUENCIES = [
@@ -504,6 +514,12 @@
     const [superPreviewPrice, setSuperPreviewPrice] = React.useState(null);
     const [superRowPriceStatus, setSuperRowPriceStatus] = React.useState({});
 
+    const [kidsItems, setKidsItems] = React.useState([]);
+    const [showKidsForm, setShowKidsForm] = React.useState(false);
+    const [editingKidsId, setEditingKidsId] = React.useState(null);
+    const [kidsForm, setKidsForm] = React.useState(emptyKidsForm());
+    const [kidsErr, setKidsErr] = React.useState('');
+
     function emptyForm() {
       return {
         name: '', amount: '', category: CATEGORIES[0], frequency: 'monthly',
@@ -522,6 +538,10 @@
 
     function emptySuperForm() {
       return { name: '', value: '', category: SUPER_CATEGORIES[0], mortgage: '', shareCode: '', notes: '' };
+    }
+
+    function emptyKidsForm() {
+      return { name: '', value: '', category: KIDS_CATEGORIES[0], notes: '' };
     }
 
     React.useEffect(() => {
@@ -571,6 +591,10 @@
         const superValue = await storageGet(SUPER_STORAGE_KEY);
         if (superValue) {
           try { setSuperItems(JSON.parse(superValue)); } catch (_) { /* corrupt data, ignore */ }
+        }
+        const kidsValue = await storageGet(KIDS_STORAGE_KEY);
+        if (kidsValue) {
+          try { setKidsItems(JSON.parse(kidsValue)); } catch (_) { /* corrupt data, ignore */ }
         }
         setLoaded(true);
       })();
@@ -769,6 +793,40 @@
     }
     function removeSuper(id) { persistSuper(superItems.filter(it => it.id !== id)); }
 
+    async function persistKids(next) {
+      setKidsItems(next);
+      await storageSet(KIDS_STORAGE_KEY, JSON.stringify(next));
+    }
+    function openAddKids() {
+      setKidsForm(emptyKidsForm());
+      setEditingKidsId(null);
+      setKidsErr('');
+      setShowKidsForm(true);
+    }
+    function openEditKids(item) {
+      setKidsForm({ name: item.name, value: String(item.value), category: item.category, notes: item.notes || '' });
+      setEditingKidsId(item.id);
+      setKidsErr('');
+      setShowKidsForm(true);
+    }
+    function closeKidsForm() { setShowKidsForm(false); setEditingKidsId(null); }
+    function submitKids(ev) {
+      ev.preventDefault();
+      const val = parseFloat(kidsForm.value);
+      if (!kidsForm.name.trim()) { setKidsErr('Give it a name.'); return; }
+      if (isNaN(val) || val < 0) { setKidsErr('Value must be a positive number.'); return; }
+      if (editingKidsId) {
+        const next = kidsItems.map(it => it.id === editingKidsId ? {
+          ...it, name: kidsForm.name.trim(), value: val, category: kidsForm.category, notes: kidsForm.notes.trim()
+        } : it);
+        persistKids(next);
+      } else {
+        persistKids([...kidsItems, { id: uid(), name: kidsForm.name.trim(), value: val, category: kidsForm.category, notes: kidsForm.notes.trim() }]);
+      }
+      closeKidsForm();
+    }
+    function removeKids(id) { persistKids(kidsItems.filter(it => it.id !== id)); }
+
     async function toggleExcludedCat(cat) {
       const next = excludedCats.includes(cat) ? excludedCats.filter(c => c !== cat) : [...excludedCats, cat];
       setExcludedCats(next);
@@ -897,7 +955,8 @@
         expenses: items,
         income: incomeItems,
         assets: assetItems,
-        super: superItems
+        super: superItems,
+        kids: kidsItems
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -923,23 +982,27 @@
           const incomeList = Array.isArray(parsed) ? [] : (parsed.income || []);
           const assetList = Array.isArray(parsed) ? [] : (parsed.assets || []);
           const superList = Array.isArray(parsed) ? [] : (parsed.super || []);
+          const kidsList = Array.isArray(parsed) ? [] : (parsed.kids || []);
           if (!Array.isArray(list)) { setRestoreMsg('error:Not a valid backup file.'); return; }
           const valid = list.every(it => it && typeof it.name === 'string' && typeof it.amount === 'number');
           const incomeValid = Array.isArray(incomeList) && incomeList.every(it => it && typeof it.name === 'string' && typeof it.amount === 'number');
           const assetValid = Array.isArray(assetList) && assetList.every(it => it && typeof it.name === 'string' && typeof it.value === 'number');
           const superValid = Array.isArray(superList) && superList.every(it => it && typeof it.name === 'string' && typeof it.value === 'number');
-          if (!valid || !incomeValid || !assetValid || !superValid) { setRestoreMsg('error:File format not recognized.'); return; }
-          const confirmReplace = window.confirm(`Restore ${list.length} expense(s), ${incomeList.length} income source(s), ${assetList.length} asset(s), and ${superList.length} super holding(s) from this backup? This will replace what's currently in the app.`);
+          const kidsValid = Array.isArray(kidsList) && kidsList.every(it => it && typeof it.name === 'string' && typeof it.value === 'number');
+          if (!valid || !incomeValid || !assetValid || !superValid || !kidsValid) { setRestoreMsg('error:File format not recognized.'); return; }
+          const confirmReplace = window.confirm(`Restore ${list.length} expense(s), ${incomeList.length} income source(s), ${assetList.length} asset(s), ${superList.length} super holding(s), and ${kidsList.length} kids account(s) from this backup? This will replace what's currently in the app.`);
           if (!confirmReplace) return;
           const withIds = list.map(it => ({ ...it, id: it.id || uid() }));
           const incomeWithIds = incomeList.map(it => ({ ...it, id: it.id || uid() }));
           const assetWithIds = assetList.map(it => ({ ...it, id: it.id || uid() }));
           const superWithIds = superList.map(it => ({ ...it, id: it.id || uid() }));
+          const kidsWithIds = kidsList.map(it => ({ ...it, id: it.id || uid() }));
           persist(withIds);
           persistIncome(incomeWithIds);
           persistAssets(assetWithIds);
           persistSuper(superWithIds);
-          setRestoreMsg('success:Restored ' + list.length + ' expense(s), ' + incomeList.length + ' income source(s), ' + assetList.length + ' asset(s), and ' + superList.length + ' super holding(s).');
+          persistKids(kidsWithIds);
+          setRestoreMsg('success:Restored ' + list.length + ' expense(s), ' + incomeList.length + ' income source(s), ' + assetList.length + ' asset(s), ' + superList.length + ' super holding(s), and ' + kidsList.length + ' kids account(s).');
         } catch (e) {
           setRestoreMsg('error:Could not read that file.');
         }
@@ -1017,6 +1080,13 @@
 
     const netWorth = assetTotal + superTotal;
 
+    const kidsTotal = kidsItems.reduce((sum, it) => sum + it.value, 0);
+    const kidsCatTotals = {};
+    kidsItems.forEach(it => { kidsCatTotals[it.category] = (kidsCatTotals[it.category] || 0) + it.value; });
+    const kidsCatList = Object.entries(kidsCatTotals).sort((a, b) => b[1] - a[1]);
+    const maxKidsCat = kidsCatList.length ? kidsCatList[0][1] : 1;
+    const sortedKids = [...kidsItems].sort((a, b) => b.value - a.value);
+
     if (!loaded) {
       return e('div', { className: 'lg-wrap' }, e('div', { className: 'lg-empty' }, 'Loading your ledger…'));
     }
@@ -1041,8 +1111,8 @@
           }),
           e('button', {
             className: 'lg-btn lg-btn-primary',
-            onClick: { expenses: openAdd, income: openAddIncome, assets: openAddAsset, super: openAddSuper }[activeTab]
-          }, { expenses: '+ Add expense', income: '+ Add income', assets: '+ Add asset', super: '+ Add super holding' }[activeTab])
+            onClick: { expenses: openAdd, income: openAddIncome, assets: openAddAsset, super: openAddSuper, kids: openAddKids }[activeTab]
+          }, { expenses: '+ Add expense', income: '+ Add income', assets: '+ Add asset', super: '+ Add super holding', kids: '+ Add kids account' }[activeTab])
         )
       ),
 
@@ -1081,7 +1151,7 @@
 
       e('div', { className: 'lg-toolbar', style: { justifyContent: 'space-between', marginBottom: 18 } },
         e('div', { className: 'lg-toolbar', style: { flexWrap: 'wrap' } },
-          [['expenses', 'Expenses'], ['income', 'Income'], ['assets', 'Assets'], ['super', 'Super']].map(([tab, label]) =>
+          [['expenses', 'Expenses'], ['income', 'Income'], ['assets', 'Assets'], ['super', 'Super'], ['kids', 'Kids']].map(([tab, label]) =>
             e('button', {
               key: tab,
               className: 'lg-btn ' + (activeTab === tab ? 'lg-btn-primary' : 'lg-btn-ghost'),
@@ -1672,6 +1742,83 @@
             )
 
       ), // end super tab fragment
+
+      activeTab === 'kids' && e(React.Fragment, null,
+
+        e('div', { className: 'lg-stats', style: { marginBottom: 18 } },
+          e('div', { className: 'lg-stat' },
+            e('div', { className: 'lg-stat-label' }, 'Total kids savings'),
+            e('div', { className: 'lg-stat-value teal' }, fmtMoney(kidsTotal)),
+            e('div', { className: 'lg-sub', style: { marginTop: 4 } }, 'Kept separate from your net worth — it\u2019s their money, not yours')
+          )
+        ),
+
+        showKidsForm && e('form', { className: 'lg-form', onSubmit: submitKids },
+          kidsErr && e('div', { className: 'lg-field full', style: { color: 'var(--rust)', fontSize: 12.5 } }, kidsErr),
+          e('div', { className: 'lg-field full' },
+            e('label', null, 'Name'),
+            e('input', { type: 'text', placeholder: 'e.g. Emma\u2019s savings, Jack\u2019s term deposit', value: kidsForm.name, onChange: ev => setKidsForm({ ...kidsForm, name: ev.target.value }) })
+          ),
+          e('div', { className: 'lg-field' },
+            e('label', null, 'Current balance (AUD)'),
+            e('input', { type: 'number', step: '0.01', min: '0', placeholder: '0.00', value: kidsForm.value, onChange: ev => setKidsForm({ ...kidsForm, value: ev.target.value }) })
+          ),
+          e('div', { className: 'lg-field' },
+            e('label', null, 'Account type'),
+            e('select', { value: kidsForm.category, onChange: ev => setKidsForm({ ...kidsForm, category: ev.target.value }) },
+              KIDS_CATEGORIES.map(c => e('option', { key: c, value: c }, c))
+            )
+          ),
+          e('div', { className: 'lg-field full' },
+            e('label', null, 'Notes'),
+            e('textarea', { rows: 2, placeholder: 'Optional', value: kidsForm.notes, onChange: ev => setKidsForm({ ...kidsForm, notes: ev.target.value }) })
+          ),
+          e('div', { className: 'lg-form-actions' },
+            e('button', { type: 'button', className: 'lg-btn lg-btn-ghost', onClick: closeKidsForm }, 'Cancel'),
+            e('button', { type: 'submit', className: 'lg-btn lg-btn-primary' }, editingKidsId ? 'Save changes' : 'Add kids account')
+          )
+        ),
+
+        kidsCatList.length > 0 && e('div', null,
+          e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, 'By account type')),
+          e('div', { className: 'lg-cats' },
+            kidsCatList.map(([cat, total]) =>
+              e('div', { className: 'lg-cat-bar-row', key: cat },
+                e('div', { className: 'lg-cat-label', style: { color: kidsCatColor(cat).fg, fontWeight: 600 } }, cat),
+                e('div', { className: 'lg-cat-track' }, e('div', { className: 'lg-cat-fill', style: { width: (total / maxKidsCat * 100) + '%', background: kidsCatColor(cat).fg } })),
+                e('div', { className: 'lg-cat-amount' }, fmtMoney(total))
+              )
+            )
+          )
+        ),
+
+        e('div', { className: 'lg-section-head' }, e('div', { className: 'lg-section-title' }, 'All kids accounts')),
+
+        sortedKids.length === 0
+          ? e('div', { className: 'lg-empty' },
+              e('strong', null, 'No kids accounts tracked yet'),
+              'Add their savings or term deposit accounts to keep an eye on how they\u2019re growing.'
+            )
+          : e('div', { className: 'lg-list' },
+              sortedKids.map(it =>
+                e('div', { className: 'lg-row', key: it.id, style: { borderLeftColor: kidsCatColor(it.category).fg } },
+                  e('div', { className: 'lg-row-main' },
+                    e('div', { className: 'lg-row-name' }, it.name),
+                    e('div', { className: 'lg-row-meta' },
+                      e('span', { className: 'lg-tag', style: { background: kidsCatColor(it.category).bg, color: kidsCatColor(it.category).fg } }, it.category)
+                    ),
+                    it.notes && e('div', { className: 'lg-row-meta', style: { marginTop: 4, fontStyle: 'italic' } }, it.notes)
+                  ),
+                  e('div', { className: 'lg-row-amount' }, fmtMoney(it.value)),
+                  e('div', { className: 'lg-row-actions' },
+                    e('button', { className: 'lg-icon-btn', title: 'Edit', onClick: () => openEditKids(it) }, '✎'),
+                    e('button', { className: 'lg-icon-btn', title: 'Delete', onClick: () => removeKids(it.id) }, '✕')
+                  )
+                )
+              )
+            )
+
+      ), // end kids tab fragment
 
       e('div', { className: 'lg-footer-note' },
         hasClaudeStorage
